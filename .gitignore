@@ -1,3 +1,4 @@
 myenv/
 *.txt
 *.yaml
+__pycache__/
