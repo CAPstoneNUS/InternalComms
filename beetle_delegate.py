@@ -6,25 +6,28 @@ class BeetleDelegate(btle.DefaultDelegate):
         btle.DefaultDelegate.__init__(self)
         self.beetleConnection = beetleConnection
         self.data_queue = data_queue
+        self.buffer = bytearray()
 
     def handleNotification(self, cHandle, data):
-        packet_type = data[0]
-        if packet_type == ord('A'):
-            self.beetleConnection.setACKFlag(True)
-            return
-        elif packet_type == ord('M'):
-            if len(data) != 15:
-                print(f"Invalid IMU packet length: {len(data)}")
+        self.buffer.extend(data)
+
+        while len(self.buffer) >= 20:
+            packet = self.buffer[:20]
+            self.buffer = self.buffer[20:]
+
+            packet_type = packet[0]
+            if packet_type == ord('A'):
+                self.beetleConnection.setACKFlag(True)
                 return
-            
-            self.processIMUPacket(data)
-        else:
-            print(f"Unknown packet type: {chr(packet_type)}")
+            elif packet_type == ord('M'):
+                self.processIMUPacket(data)
+            else:
+                print(f"Unknown packet type: {chr(packet_type)}")
 
 
     def processIMUPacket(self, data):
-        unpacked_data = struct.unpack("<b6h2b", data)
-        packet_type, accX, accY, accZ, gyrX, gyrY, gyrZ, checksum, eop = unpacked_data
+        unpacked_data = struct.unpack("<b6h6xb", data)
+        packet_type, accX, accY, accZ, gyrX, gyrY, gyrZ, checksum = unpacked_data
         mac = self.beetleConnection.getMACAddress()
 
         data = {

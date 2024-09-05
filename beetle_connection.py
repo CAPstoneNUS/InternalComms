@@ -1,5 +1,6 @@
 from bluepy import btle
 import time
+import struct
 from beetle_delegate import BeetleDelegate
 
 class BeetleConnection:
@@ -88,11 +89,13 @@ class BeetleConnection:
 
     def sendSYN(self):
         print("Sending SYN to beetle")
-        self.serial_characteristic.write(bytes('S', encoding="utf-8"))
+        syn_packet = struct.pack('B18sB', ord('S'), bytes(18), 1)
+        self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
         print("Established handshake with beetle")
-        self.serial_characteristic.write(bytes('A', encoding="utf-8"))
+        ack_packet = struct.pack('B18sB', ord('A'), bytes(18), 1)
+        self.serial_characteristic.write(ack_packet)
 
     def setACKFlag(self, value):
         self.ack_flag = value
