@@ -3,42 +3,41 @@ import time
 from beetle_delegate import BeetleDelegate
 
 class BeetleConnection:
-    def __init__(self, config, macAddress):
-        self.macAddress = macAddress
+    def __init__(self, config, mac_address, data_queue):
+        self.mac_address = mac_address
+        self.data_queue = data_queue
         self.beetle = None
-        self.beetleDelegate = None
+        self.beetle_delegate = None
 
         self.syn_flag = False
         self.ack_flag = False
-        self.hasHandshake = False
-        self.isConnected = False
+        self.has_handshake = False
+        self.is_connected = False
         
-        self.serialService = None
-        self.serialCharacteristic = None
+        self.serial_service = None
+        self.serial_characteristic = None
 
         self.SERVICE_UUID = config["uuid"]["service"]
         self.CHARACTERISTIC_UUID = config["uuid"]["characteristic"]
-        self.IMU_PACKET_FORMAT = config["packet_format"]["imu"]
-        self.IMU_DATA_FILE = config["file"]["imu"]
-        self.CONNECTION_TIMEOUT = 1
-        self.RECONNECTION_INTERVAL = 5
+        self.CONNECTION_TIMEOUT = config["timeout"]["connection_timeout"]
+        self.RECONNECTION_INTERVAL = config["timeout"]["reconnection_interval"]
 
     def startComms(self):
         while True:
             try:
-                if not self.isConnected:
-                    self.isConnected = self.openConnection()
-                    if not self.isConnected:
+                if not self.is_connected:
+                    self.is_connected = self.openConnection()
+                    if not self.is_connected:
                         print(f"Failed to connect. Retrying in {self.RECONNECTION_INTERVAL} seconds...")
                         time.sleep(self.RECONNECTION_INTERVAL)
                         continue
 
-                if not self.hasHandshake:
-                    self.hasHandshake = self.doHandshake()
-                    if not self.hasHandshake:
+                if not self.has_handshake:
+                    self.has_handshake = self.doHandshake()
+                    if not self.has_handshake:
                         print("Handshake failed. Retrying...")
 
-                if self.isConnected and self.hasHandshake:
+                if self.is_connected and self.has_handshake:
                     self.beetle.waitForNotifications(1.0)
 
             except KeyboardInterrupt:
@@ -47,19 +46,19 @@ class BeetleConnection:
                         
             except btle.BTLEDisconnectError:
                 print("Beetle disconnected. Attempting to reconnect...")
-                self.isConnected = False
-                self.hasHandshake = False
+                self.is_connected = False
+                self.has_handshake = False
                 time.sleep(self.RECONNECTION_INTERVAL)
 
     def openConnection(self):
         try:
-            self.beetle = btle.Peripheral(self.macAddress)
+            self.beetle = btle.Peripheral(self.mac_address)
             print("Connected to beetle: ", self.beetle)
             
-            self.serialService = self.beetle.getServiceByUUID(self.SERVICE_UUID)
-            self.serialCharacteristic = self.serialService.getCharacteristics(self.CHARACTERISTIC_UUID)[0]
-            self.beetleDelegate = BeetleDelegate(self.IMU_DATA_FILE, self.serialService, self.serialCharacteristic, self, self.IMU_PACKET_FORMAT)
-            self.beetle.withDelegate(self.beetleDelegate)
+            self.serial_service = self.beetle.getServiceByUUID(self.SERVICE_UUID)
+            self.serial_characteristic = self.serial_service.getCharacteristics(self.CHARACTERISTIC_UUID)[0]
+            self.beetle_delegate = BeetleDelegate(self, self.data_queue)
+            self.beetle.withDelegate(self.beetle_delegate)
             return True
 
         except btle.BTLEDisconnectError:
@@ -89,11 +88,14 @@ class BeetleConnection:
 
     def sendSYN(self):
         print("Sending SYN to beetle")
-        self.serialCharacteristic.write(bytes('S', encoding="utf-8"))
+        self.serial_characteristic.write(bytes('S', encoding="utf-8"))
 
     def sendACK(self):
         print("Established handshake with beetle")
-        self.serialCharacteristic.write(bytes('A', encoding="utf-8"))
+        self.serial_characteristic.write(bytes('A', encoding="utf-8"))
 
     def setACKFlag(self, value):
         self.ack_flag = value
+
+    def getMACAddress(self):
+        return self.mac_address
