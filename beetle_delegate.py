@@ -1,6 +1,7 @@
+import time
 import struct
 from bluepy import btle
-from utils import getCRC
+from utils import getCRC, displayTransmissionSpeed
 
 
 class BeetleDelegate(btle.DefaultDelegate):
@@ -10,8 +11,21 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.data_queue = data_queue
         self.buffer = bytearray()
 
+        # For transmission speed stats
+        self.start_time = time.time()
+        self.total_data_size = 0
+
     def handleNotification(self, cHandle, data):
         self.buffer.extend(data)
+
+        # For transmission speed stats
+        end_time = time.time()
+        time_diff = end_time - self.start_time
+        self.total_data_size += len(data)
+        if time_diff >= 3:
+            displayTransmissionSpeed(time_diff, self.total_data_size)
+            self.start_time = time.time()
+            self.total_data_size = 0
 
         while len(self.buffer) >= 20:
             packet = self.buffer[:20]
