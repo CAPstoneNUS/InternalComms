@@ -2,11 +2,11 @@ import yaml
 import queue
 import threading
 from beetle_connection import BeetleConnection
-from utils import load_config, data_consumer
+from utils import loadConfig, dataConsumer
 
 
 def main():
-    config = load_config()
+    config = loadConfig()
     beetle_macs = [
         config["device"]["beetle_1"],
         config["device"]["beetle_2"],
@@ -21,7 +21,7 @@ def main():
         beetle_threads.append(thread)
         thread.start()
     
-    consumer_thread = threading.Thread(target=data_consumer, args=(config, data_queue))
+    consumer_thread = threading.Thread(target=dataConsumer, args=(config, data_queue))
     consumer_thread.start()
 
     for thread in beetle_threads:

@@ -2,6 +2,7 @@ from bluepy import btle
 import time
 import struct
 from beetle_delegate import BeetleDelegate
+from utils import getCRC
 
 class BeetleConnection:
     def __init__(self, config, mac_address, data_queue):
@@ -89,12 +90,16 @@ class BeetleConnection:
 
     def sendSYN(self):
         print("Sending SYN to beetle")
-        syn_packet = struct.pack('B18sB', ord('S'), bytes(18), 1)
+        syn_packet = struct.pack('b18s', ord('S'), bytes(18))
+        crc = getCRC(syn_packet)
+        syn_packet += struct.pack('B', crc)
         self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
         print("Established handshake with beetle")
-        ack_packet = struct.pack('B18sB', ord('A'), bytes(18), 1)
+        ack_packet = struct.pack('b18s', ord('A'), bytes(18))
+        crc = getCRC(ack_packet)
+        ack_packet += struct.pack('B', crc)
         self.serial_characteristic.write(ack_packet)
 
     def setACKFlag(self, value):

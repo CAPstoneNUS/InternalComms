@@ -1,5 +1,7 @@
-from bluepy import btle
 import struct
+from bluepy import btle
+from utils import getCRC
+
 
 class BeetleDelegate(btle.DefaultDelegate):
     def __init__(self, beetleConnection, data_queue):
@@ -16,26 +18,33 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.buffer = self.buffer[20:]
 
             packet_type = packet[0]
-            if packet_type == ord('A'):
-                self.beetleConnection.setACKFlag(True)
-                return
-            elif packet_type == ord('M'):
-                self.processIMUPacket(data)
+            calculated_crc = getCRC(packet[:-1])
+            true_crc = struct.unpack("<B", packet[-1:])[0]
+
+            if calculated_crc == true_crc:
+                if packet_type == ord('A'):
+                    self.beetleConnection.setACKFlag(True)
+                    return
+                elif packet_type == ord('M'):
+                    self.processIMUPacket(data)
+                else:
+                    print(f"Unknown packet type: {chr(packet_type)}")
             else:
-                print(f"Unknown packet type: {chr(packet_type)}")
+                print("CRC check failed. Discarding data...")
+
+        self.buffer = bytearray() # Discard any remaining data
 
 
     def processIMUPacket(self, data):
-        unpacked_data = struct.unpack("<b6h6xb", data)
-        packet_type, accX, accY, accZ, gyrX, gyrY, gyrZ, checksum = unpacked_data
-        mac = self.beetleConnection.getMACAddress()
-
-        data = {
-            'mac_address': mac,
+        unpacked_data = struct.unpack("<b6h6xB", data)
+        _, accX, accY, accZ, gyrX, gyrY, gyrZ, _ = unpacked_data
+        beetle_id = (self.beetleConnection.getMACAddress())[-2:]
+        imu_data = {
+            'id': beetle_id,
             'accX': accX, 'accY': accY, 'accZ': accZ,
-            'gyrX': gyrX, 'gyrY': gyrY, 'gyrZ': gyrZ
+            'gyrX': gyrX, 'gyrY': gyrY, 'gyrZ': gyrZ,
         }
         if self.data_queue.qsize() < 1000:
-            self.data_queue.put(data)
+            self.data_queue.put(imu_data)
         else:
             print("Data queue is full. Discarding data...")
