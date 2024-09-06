@@ -11,13 +11,13 @@ unsigned long lastSendTime = 0;
 const unsigned long sendInterval = 500;
 
 struct ACKPacket {
-    byte packetType;
+    char packetType;
     byte padding[18];
-    byte crc;
+    uint8_t crc;
 };
 
 struct IMUPacket {
-    byte packetType;
+    char packetType;
     int16_t accX;
     int16_t accY;
     int16_t accZ;
@@ -25,7 +25,7 @@ struct IMUPacket {
     int16_t gyrY;
     int16_t gyrZ;
     byte padding[6];
-    byte crc;
+    uint8_t crc;
 };
 
 void sendACKPacket() {
@@ -35,7 +35,7 @@ void sendACKPacket() {
     
     crc8.restart();
     crc8.add((uint8_t*)&ackPacket, sizeof(ACKPacket) - sizeof(ackPacket.crc));
-    ackPacket.crc = crc8.calc();
+    ackPacket.crc = (uint8_t)crc8.calc();
 
     Serial.write((byte *)&ackPacket, sizeof(ackPacket));
 }
@@ -53,8 +53,8 @@ void sendIMUPacket() {
 
     crc8.restart();
     crc8.add((uint8_t*)&imuPacket, sizeof(IMUPacket) - sizeof(imuPacket.crc));
-    imuPacket.crc = crc8.calc();
-
+    imuPacket.crc = (uint8_t)crc8.calc();
+    
     Serial.write((byte *)&imuPacket, sizeof(imuPacket));
 }
 
@@ -68,12 +68,18 @@ void loop() {
         byte receivedPacket[20];
         Serial.readBytes(receivedPacket, 20);
         char packetType = receivedPacket[0];
-        if (packetType == SYN_PACKET) {
-            sendACKPacket();
-        } else if (packetType == ACK_PACKET) {
-            hasHandshake = true;
-            lastSendTime = millis();
-        }
+
+        crc8.restart();
+        crc8.add((uint8_t*)&receivedPacket, sizeof(receivedPacket) - sizeof(byte));
+        uint8_t calculatedCRC = (uint8_t)crc8.calc();
+        char trueCRC = receivedPacket[19];
+
+      if ((packetType == SYN_PACKET) && (calculatedCRC == trueCRC)) {
+          sendACKPacket();
+      } else if ((packetType == ACK_PACKET)) {
+          hasHandshake = true;
+          lastSendTime = millis();
+      }          
     }
 
     if (hasHandshake && (millis() - lastSendTime >= sendInterval)) {
