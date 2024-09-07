@@ -59,7 +59,7 @@ class BeetleConnection:
             
             self.serial_service = self.beetle.getServiceByUUID(self.SERVICE_UUID)
             self.serial_characteristic = self.serial_service.getCharacteristics(self.CHARACTERISTIC_UUID)[0]
-            self.beetle_delegate = BeetleDelegate(self, self.data_queue)
+            self.beetle_delegate = BeetleDelegate(self, self.mac_address, self.data_queue)
             self.beetle.withDelegate(self.beetle_delegate)
             return True
 
