@@ -1,4 +1,3 @@
-import yaml
 import queue
 import threading
 from beetle_connection import BeetleConnection
@@ -20,14 +19,15 @@ def main():
         thread = threading.Thread(target=beetle.startComms)
         beetle_threads.append(thread)
         thread.start()
-    
+
     consumer_thread = threading.Thread(target=dataConsumer, args=(config, data_queue))
     consumer_thread.start()
 
     for thread in beetle_threads:
         thread.join()
-    
+
     consumer_thread.join()
+
 
 if __name__ == "__main__":
     main()

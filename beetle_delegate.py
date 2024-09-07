@@ -30,7 +30,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) + len(data) > 1000:
             print("Buffer size limit exceeded. Discarding oldest data.")
-            self.buffer = self.buffer[-(1000 - len(data)):]
+            self.buffer = self.buffer[-(1000 - len(data)) :]
 
         self.buffer.extend(data)
 
@@ -45,10 +45,10 @@ class BeetleDelegate(btle.DefaultDelegate):
             true_crc = struct.unpack("<B", packet[-1:])[0]
 
             if calculated_crc == true_crc:
-                if packet_type == ord('A'):
+                if packet_type == ord("A"):
                     self.beetleConnection.setACKFlag(True)
                     return
-                elif packet_type == ord('M'):
+                elif packet_type == ord("M"):
                     self.processIMUPacket(packet[1:-1])
                 else:
                     print(f"Unknown packet type: {chr(packet_type)}")
@@ -57,16 +57,21 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
-            print(f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}")            
-
+            print(
+                f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
+            )
 
     def processIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)
         accX, accY, accZ, gyrX, gyrY, gyrZ = unpacked_data
         imu_data = {
-            'id': self.beetle_id,
-            'accX': accX, 'accY': accY, 'accZ': accZ,
-            'gyrX': gyrX, 'gyrY': gyrY, 'gyrZ': gyrZ,
+            "id": self.beetle_id,
+            "accX": accX,
+            "accY": accY,
+            "accZ": accZ,
+            "gyrX": gyrX,
+            "gyrY": gyrY,
+            "gyrZ": gyrZ,
         }
         if self.data_queue.qsize() < 2000:
             self.data_queue.put(imu_data)

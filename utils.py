@@ -10,6 +10,7 @@ def loadConfig():
     with open("config.yaml", "r") as file:
         return yaml.safe_load(file)
 
+
 def dataConsumer(config, data_queue):
     csv_files = {}
     csv_writers = {}
@@ -24,7 +25,7 @@ def dataConsumer(config, data_queue):
 
             if id not in csv_files:
                 filename = os.path.join(data_dir, f"beetle_{id}.csv")
-                csv_files[id] = open(filename, 'w', newline='')
+                csv_files[id] = open(filename, "w", newline="")
                 csv_writers[id] = csv.DictWriter(csv_files[id], fieldnames=data.keys())
                 csv_writers[id].writeheader()
 
@@ -39,8 +40,9 @@ def getCRC(data):
     crc = crc8.crc8()
     crc.update(data)
     bytes_crc = crc.digest()
-    crc_value = int.from_bytes(bytes_crc, 'little')
+    crc_value = int.from_bytes(bytes_crc, "little")
     return crc_value
+
 
 def displayTransmissionSpeed(time_diff, total_data_size):
     speed_kbps = (total_data_size * 8 / 1000) / time_diff
@@ -57,8 +59,10 @@ def getDeviceInfo(mac_address):
             print(f"Service UUID: {service.uuid}")
             characteristics = service.getCharacteristics()
             for char in characteristics:
-                print(f"  Characteristic UUID: {char.uuid} | Properties: {char.propertiesToString()}")
-        
+                print(
+                    f"  Characteristic UUID: {char.uuid} | Properties: {char.propertiesToString()}"
+                )
+
         device.disconnect()
     except btle.BTLEDisconnectError:
         print(f"Failed to connect to device with MAC address: {mac_address}")
@@ -70,6 +74,6 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python script_name.py <device_mac_address>")
         sys.exit(1)
-    
+
     mac_address = sys.argv[1]
     getDeviceInfo(mac_address)
