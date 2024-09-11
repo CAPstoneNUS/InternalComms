@@ -1,7 +1,7 @@
 myenv/
 data/
+logs/
 
-*.txt
 *.csv
 *.yaml
 
