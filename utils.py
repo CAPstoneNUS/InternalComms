@@ -15,8 +15,10 @@ def dataConsumer(config, data_queue):
     csv_files = {}
     csv_writers = {}
 
-    data_dir = os.path.join(os.getcwd(), config["file"]["data"])
-    os.makedirs(data_dir, exist_ok=True)
+    data_dir = config["file"]["data"]
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    data_path = os.path.join(os.getcwd(), data_dir)
 
     while True:
         try:
@@ -24,7 +26,7 @@ def dataConsumer(config, data_queue):
             id = data["id"]
 
             if id not in csv_files:
-                filename = os.path.join(data_dir, f"beetle_{id}.csv")
+                filename = os.path.join(data_path, f"{id}_data.csv")
                 csv_files[id] = open(filename, "w", newline="")
                 csv_writers[id] = csv.DictWriter(csv_files[id], fieldnames=data.keys())
                 csv_writers[id].writeheader()
@@ -34,6 +36,8 @@ def dataConsumer(config, data_queue):
 
         except Exception as e:
             print(f"Filewrite error occurred: {str(e)}")
+            if data_queue.empty():
+                print("No data in queue.")
 
 
 def getCRC(data):

@@ -5,9 +5,10 @@ from utils import getCRC, displayTransmissionSpeed
 
 
 class BeetleDelegate(btle.DefaultDelegate):
-    def __init__(self, beetleConnection, mac_address, data_queue):
+    def __init__(self, beetleConnection, config, mac_address, data_queue):
         btle.DefaultDelegate.__init__(self)
         self.beetleConnection = beetleConnection
+        self.config = config
         self.beetle_id = mac_address[-2:]
         self.data_queue = data_queue
         self.buffer = bytearray()
@@ -57,9 +58,9 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
-            print(
-                f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
-            )
+            # print(
+            #     f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
+            # )
 
     def processIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)

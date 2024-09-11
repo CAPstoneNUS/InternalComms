@@ -1,12 +1,20 @@
 from bluepy import btle
 import time
 import struct
+from enum import Enum
 from beetle_delegate import BeetleDelegate
 from utils import getCRC
 
 
+class BeetleState(Enum):
+    DISCONNECTED = 0
+    CONNECTED = 1
+    READY = 2
+
+
 class BeetleConnection:
     def __init__(self, config, mac_address, data_queue):
+        self.config = config
         self.mac_address = mac_address
         self.data_queue = data_queue
         self.beetle = None
@@ -14,64 +22,74 @@ class BeetleConnection:
 
         self.syn_flag = False
         self.ack_flag = False
-        self.has_handshake = False
-        self.is_connected = False
+        self.beetle_state = BeetleState.DISCONNECTED
 
         self.serial_service = None
         self.serial_characteristic = None
 
         self.SERVICE_UUID = config["uuid"]["service"]
         self.CHARACTERISTIC_UUID = config["uuid"]["characteristic"]
-        self.CONNECTION_TIMEOUT = config["timeout"]["connection_timeout"]
         self.RECONNECTION_INTERVAL = config["timeout"]["reconnection_interval"]
 
     def startComms(self):
         while True:
             try:
-                if not self.is_connected:
-                    self.is_connected = self.openConnection()
-                    if not self.is_connected:
+                # Step 1: Open connection
+                if self.beetle_state == BeetleState.DISCONNECTED:
+                    if self.openConnection():
+                        self.beetle_state = BeetleState.CONNECTED
+                    else:
                         print(
-                            f"Failed to connect. Retrying in {self.RECONNECTION_INTERVAL} seconds..."
+                            f"Beetle {self.mac_address} failed to connect. Retrying in {self.RECONNECTION_INTERVAL} second(s)..."
                         )
                         time.sleep(self.RECONNECTION_INTERVAL)
                         continue
 
-                if not self.has_handshake:
-                    self.has_handshake = self.doHandshake()
-                    if not self.has_handshake:
-                        print("Handshake failed. Retrying...")
+                # Step 2: Do handshake
+                if self.beetle_state == BeetleState.CONNECTED:
+                    if self.doHandshake():
+                        self.beetle_state = BeetleState.READY
+                    else:
+                        print(
+                            f"Beetle {self.mac_address} failed to handshake. Retrying..."
+                        )
 
-                if self.is_connected and self.has_handshake:
+                # Step 3: Wait for notifications
+                if self.beetle_state == BeetleState.READY:
                     self.beetle.waitForNotifications(1.0)
 
-            except KeyboardInterrupt:
-                print("KeyboardInterrupt: Exiting...")
-                return
-
             except btle.BTLEDisconnectError:
-                print("Beetle disconnected. Attempting to reconnect...")
-                self.is_connected = False
-                self.has_handshake = False
+                print(
+                    f"Beetle {self.mac_address} disconnected. Reconnecting in {self.RECONNECTION_INTERVAL} second(s)..."
+                )
+                self.beetle_state = BeetleState.DISCONNECTED
                 time.sleep(self.RECONNECTION_INTERVAL)
+
+            except btle.BTLEException as e:
+                print(f"Bluetooth error occurred: {e}")
+                self.beetle_state = BeetleState.DISCONNECTED
+
+            except Exception as e:
+                print(f"Unexpected error occurred: {e}")
+                self.beetle_state = BeetleState.DISCONNECTED
 
     def openConnection(self):
         try:
             self.beetle = btle.Peripheral(self.mac_address)
-            print("Connected to beetle: ", self.beetle)
+            print(f"Connected to Beetle {self.mac_address}")
 
             self.serial_service = self.beetle.getServiceByUUID(self.SERVICE_UUID)
             self.serial_characteristic = self.serial_service.getCharacteristics(
                 self.CHARACTERISTIC_UUID
             )[0]
             self.beetle_delegate = BeetleDelegate(
-                self, self.mac_address, self.data_queue
+                self, self.config, self.mac_address, self.data_queue
             )
             self.beetle.withDelegate(self.beetle_delegate)
             return True
 
-        except btle.BTLEDisconnectError:
-            print("Connection failed")
+        except btle.BTLEDisconnectError or btle.BTLEException as e:
+            print(f"Connection to Beetle {self.mac_address} failed: {e}")
             return False
 
     def doHandshake(self):
@@ -81,6 +99,7 @@ class BeetleConnection:
             if not self.syn_flag:
                 self.sendSYN()
                 if not self.beetle.waitForNotifications(1.0):
+                    print(f"Beetle {self.mac_address} failed to receive SYN")
                     return False
                 self.syn_flag = True
 
@@ -89,21 +108,23 @@ class BeetleConnection:
                 self.beetle.waitForNotifications(1.0)  # Recv IMU data
                 return True
 
+            self.syn_flag = False
+            self.ack_flag = False
             return False
 
         except btle.BTLEDisconnectError:
-            print("Disconnected during handshake")
+            print(f"Beetle {self.mac_address} disconnected during handshake")
             return False
 
     def sendSYN(self):
-        print("Sending SYN to beetle")
+        print(f"Sending SYN to Beetle {self.mac_address}")
         syn_packet = struct.pack("b18s", ord("S"), bytes(18))
         crc = getCRC(syn_packet)
         syn_packet += struct.pack("B", crc)
         self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
-        print("Established handshake with beetle")
+        print(f"Established handshake with Beetle {self.mac_address}")
         ack_packet = struct.pack("b18s", ord("A"), bytes(18))
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
