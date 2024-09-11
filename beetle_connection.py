@@ -13,22 +13,20 @@ class BeetleState(Enum):
 
 
 class BeetleConnection:
-    def __init__(self, config, mac_address, data_queue):
+    def __init__(self, config, logger, mac_address, data_queue):
         self.config = config
+        self.logger = logger
         self.mac_address = mac_address
         self.data_queue = data_queue
         self.beetle = None
         self.beetle_delegate = None
-
-        self.syn_flag = False
-        self.ack_flag = False
         self.beetle_state = BeetleState.DISCONNECTED
-
-        self.serial_service = None
-        self.serial_characteristic = None
+        self.syn_flag, self.ack_flag = False, False
+        self.serial_service, self.serial_characteristic = None, None
 
         self.SERVICE_UUID = config["uuid"]["service"]
         self.CHARACTERISTIC_UUID = config["uuid"]["characteristic"]
+        self.HANDSHAKE_INTERVAL = config["timeout"]["handshake_interval"]
         self.RECONNECTION_INTERVAL = config["timeout"]["reconnection_interval"]
 
     def startComms(self):
@@ -39,8 +37,8 @@ class BeetleConnection:
                     if self.openConnection():
                         self.beetle_state = BeetleState.CONNECTED
                     else:
-                        print(
-                            f"Beetle {self.mac_address} failed to connect. Retrying in {self.RECONNECTION_INTERVAL} second(s)..."
+                        self.logger.error(
+                            f"Connection failed. Retrying in {self.RECONNECTION_INTERVAL} second(s)..."
                         )
                         time.sleep(self.RECONNECTION_INTERVAL)
                         continue
@@ -48,83 +46,88 @@ class BeetleConnection:
                 # Step 2: Do handshake
                 if self.beetle_state == BeetleState.CONNECTED:
                     if self.doHandshake():
+                        self.logger.info(
+                            f"Handshake successful! Ready to receive data."
+                        )
                         self.beetle_state = BeetleState.READY
                     else:
-                        print(
-                            f"Beetle {self.mac_address} failed to handshake. Retrying..."
+                        self.logger.error(
+                            f"Handshake failed. Retrying in {self.HANDSHAKE_INTERVAL} second(s)..."
                         )
+                        time.sleep(self.HANDSHAKE_INTERVAL)
 
                 # Step 3: Wait for notifications
                 if self.beetle_state == BeetleState.READY:
                     self.beetle.waitForNotifications(1.0)
 
             except btle.BTLEDisconnectError:
-                print(
-                    f"Beetle {self.mac_address} disconnected. Reconnecting in {self.RECONNECTION_INTERVAL} second(s)..."
+                self.logger.error(
+                    f"Disconnected. Reconnecting in {self.RECONNECTION_INTERVAL} second(s)..."
                 )
                 self.beetle_state = BeetleState.DISCONNECTED
                 time.sleep(self.RECONNECTION_INTERVAL)
 
             except btle.BTLEException as e:
-                print(f"Bluetooth error occurred: {e}")
+                self.logger.error(f"Bluetooth error occurred: {e}")
                 self.beetle_state = BeetleState.DISCONNECTED
 
             except Exception as e:
-                print(f"Unexpected error occurred: {e}")
+                self.logger.exception(f"Unexpected error occurred: {e}")
                 self.beetle_state = BeetleState.DISCONNECTED
 
     def openConnection(self):
         try:
             self.beetle = btle.Peripheral(self.mac_address)
-            print(f"Connected to Beetle {self.mac_address}")
+            self.logger.info(f"Connected!")
 
             self.serial_service = self.beetle.getServiceByUUID(self.SERVICE_UUID)
             self.serial_characteristic = self.serial_service.getCharacteristics(
                 self.CHARACTERISTIC_UUID
             )[0]
             self.beetle_delegate = BeetleDelegate(
-                self, self.config, self.mac_address, self.data_queue
+                self, self.config, self.logger, self.mac_address, self.data_queue
             )
             self.beetle.withDelegate(self.beetle_delegate)
             return True
 
         except btle.BTLEDisconnectError or btle.BTLEException as e:
-            print(f"Connection to Beetle {self.mac_address} failed: {e}")
+            self.logger.error(e)
             return False
 
     def doHandshake(self):
-        self.syn_flag = False
-        self.ack_flag = False
+        self.syn_flag, self.ack_flag = False, False
         try:
             if not self.syn_flag:
                 self.sendSYN()
                 if not self.beetle.waitForNotifications(1.0):
-                    print(f"Beetle {self.mac_address} failed to receive SYN")
+                    self.logger.error(f"Failed to receive SYN.")
                     return False
                 self.syn_flag = True
 
             if self.ack_flag:
                 self.sendACK()
-                self.beetle.waitForNotifications(1.0)  # Recv IMU data
-                return True
+                if self.beetle.waitForNotifications(1.0):
+                    return True
 
-            self.syn_flag = False
-            self.ack_flag = False
+            self.syn_flag, self.ack_flag = False, False
             return False
 
         except btle.BTLEDisconnectError:
-            print(f"Beetle {self.mac_address} disconnected during handshake")
+            self.logger.error(f"Disconnected during handshake.")
             return False
 
+    def forceDisconnect(self):
+        self.beetle_state = BeetleState.DISCONNECTED
+
     def sendSYN(self):
-        print(f"Sending SYN to Beetle {self.mac_address}")
+        self.logger.info(f"Sending SYN...")
         syn_packet = struct.pack("b18s", ord("S"), bytes(18))
         crc = getCRC(syn_packet)
         syn_packet += struct.pack("B", crc)
         self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
-        print(f"Established handshake with Beetle {self.mac_address}")
+        self.logger.info(f"Sending ACK...")
         ack_packet = struct.pack("b18s", ord("A"), bytes(18))
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)

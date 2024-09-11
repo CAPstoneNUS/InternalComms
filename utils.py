@@ -2,6 +2,7 @@ import os
 import csv
 import sys
 import crc8
+import logging
 from bluepy import btle
 import yaml
 
@@ -15,7 +16,7 @@ def dataConsumer(config, data_queue):
     csv_files = {}
     csv_writers = {}
 
-    data_dir = config["file"]["data"]
+    data_dir = config["folder"]["data"]
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
     data_path = os.path.join(os.getcwd(), data_dir)
@@ -35,9 +36,32 @@ def dataConsumer(config, data_queue):
             csv_files[id].flush()
 
         except Exception as e:
-            print(f"Filewrite error occurred: {str(e)}")
-            if data_queue.empty():
-                print("No data in queue.")
+            print(
+                f"Filewrite error occurred: {str(e)}. Check if there is data in queue."
+            )
+
+
+def setupLogger(config, mac_address):
+    logs_dir = config["folder"]["logs"]
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+    logs_path = os.path.join(os.getcwd(), logs_dir)  # to logs/ folder
+    beetle_id = mac_address[-2:]
+    log_file = f"{beetle_id}_log.txt"  # to logs/XX_log.txt file
+    log_path = os.path.join(logs_path, log_file)
+
+    logger = logging.getLogger(f"Beetle {beetle_id}")
+    logger.setLevel(logging.DEBUG)
+
+    file_handler = logging.FileHandler(log_path, mode="w")
+    file_handler.setLevel(logging.DEBUG)
+
+    file_format = logging.Formatter("%(name)s - %(levelname)s - %(message)s")
+    file_handler.setFormatter(file_format)
+
+    logger.addHandler(file_handler)
+
+    return logger
 
 
 def getCRC(data):

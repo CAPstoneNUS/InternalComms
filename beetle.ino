@@ -8,7 +8,7 @@ CRC8 crc8;
 
 bool hasHandshake = false;
 unsigned long lastSendTime = 0;
-const unsigned long sendInterval = 500;
+const unsigned long sendInterval = 50;
 
 struct ACKPacket {
     char packetType;
@@ -72,11 +72,11 @@ void loop() {
         crc8.restart();
         crc8.add((uint8_t*)&receivedPacket, sizeof(receivedPacket) - sizeof(byte));
         uint8_t calculatedCRC = (uint8_t)crc8.calc();
-        char trueCRC = receivedPacket[19];
+        uint8_t trueCRC = receivedPacket[19];
 
       if ((packetType == SYN_PACKET) && (calculatedCRC == trueCRC)) {
           sendACKPacket();
-      } else if ((packetType == ACK_PACKET)) {
+      } else if ((packetType == ACK_PACKET) && (calculatedCRC == trueCRC)) {
           hasHandshake = true;
           lastSendTime = millis();
       }          

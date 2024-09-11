@@ -1,7 +1,7 @@
 import queue
 import threading
 from beetle_connection import BeetleConnection
-from utils import loadConfig, dataConsumer
+from utils import loadConfig, dataConsumer, setupLogger
 
 
 def main():
@@ -15,7 +15,8 @@ def main():
     beetle_threads = []
 
     for mac in beetle_macs:
-        beetle = BeetleConnection(config, mac, data_queue)
+        logger = setupLogger(config, mac)
+        beetle = BeetleConnection(config, logger, mac, data_queue)
         thread = threading.Thread(target=beetle.startComms)
         beetle_threads.append(thread)
         thread.start()

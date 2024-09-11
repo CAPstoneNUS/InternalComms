@@ -5,14 +5,22 @@ from utils import getCRC, displayTransmissionSpeed
 
 
 class BeetleDelegate(btle.DefaultDelegate):
-    def __init__(self, beetleConnection, config, mac_address, data_queue):
+    def __init__(self, beetleConnection, config, logger, mac_address, data_queue):
         btle.DefaultDelegate.__init__(self)
         self.beetleConnection = beetleConnection
         self.config = config
+        self.logger = logger
         self.beetle_id = mac_address[-2:]
         self.data_queue = data_queue
         self.buffer = bytearray()
+
+        self.crc_error_count = 0
         self.frag_packet_count = 0
+
+        self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
+        self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
+        self.MAX_CRC_ERROR_COUNT = self.config["storage"]["max_CRC_error_count"]
+        self.PACKET_SIZE = self.config["storage"]["packet_size"]
 
         # # For transmission speed stats
         # self.start_time = time.time()
@@ -29,16 +37,16 @@ class BeetleDelegate(btle.DefaultDelegate):
         #     self.start_time = time.time()
         #     self.total_data_size = 0
 
-        if len(self.buffer) + len(data) > 1000:
-            print("Buffer size limit exceeded. Discarding oldest data.")
-            self.buffer = self.buffer[-(1000 - len(data)) :]
+        if len(self.buffer) + len(data) > self.MAX_BUFFER_SIZE:
+            self.logger.warning("Buffer size limit exceeded. Discarding oldest data.")
+            self.buffer = self.buffer[-(self.MAX_BUFFER_SIZE - len(data)) :]
 
         self.buffer.extend(data)
 
-        while len(self.buffer) >= 20:
+        while len(self.buffer) >= self.PACKET_SIZE:
             # Splice packet from buffer
-            packet = self.buffer[:20]
-            self.buffer = self.buffer[20:]
+            packet = self.buffer[: self.PACKET_SIZE]
+            self.buffer = self.buffer[self.PACKET_SIZE :]
 
             # Extract packet type and CRC
             packet_type = packet[0]
@@ -47,18 +55,27 @@ class BeetleDelegate(btle.DefaultDelegate):
 
             if calculated_crc == true_crc:
                 if packet_type == ord("A"):
+                    self.logger.info("SYN-ACK received.")
                     self.beetleConnection.setACKFlag(True)
                     return
                 elif packet_type == ord("M"):
                     self.processIMUPacket(packet[1:-1])
                 else:
-                    print(f"Unknown packet type: {chr(packet_type)}")
+                    self.logger.error(f"Unknown packet type: {chr(packet_type)}")
             else:
-                print("CRC check failed. Discarding data...")
+                self.logger.error("CRC check failed. Clearing data buffer.")
+                self.buffer = bytearray()
+                self.crc_error_count += 1
+                if self.crc_error_count > self.config["storage"]["max_CRC_error_count"]:
+                    self.logger.error(
+                        f"CRC error count: {self.crc_error_count}. Force disconnecting..."
+                    )
+                    self.beetleConnection.forceDisconnect()
+                    self.crc_error_count = 0
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
-            # print(
+            # self.logger.warning(
             #     f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
             # )
 
@@ -74,7 +91,8 @@ class BeetleDelegate(btle.DefaultDelegate):
             "gyrY": gyrY,
             "gyrZ": gyrZ,
         }
-        if self.data_queue.qsize() < 2000:
-            self.data_queue.put(imu_data)
-        else:
-            print("Data queue is full. Discarding data...")
+        if self.data_queue.qsize() > self.MAX_QUEUE_SIZE:
+            self.logger.warning("Data queue is full. Discarding oldest data...")
+            self.data_queue.get()
+
+        self.data_queue.put(imu_data)
