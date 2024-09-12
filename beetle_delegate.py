@@ -1,7 +1,7 @@
 import time
 import struct
 from bluepy import btle
-from utils import getCRC, displayTransmissionSpeed
+from utils import getCRC, getTransmissionSpeed
 
 
 class BeetleDelegate(btle.DefaultDelegate):
@@ -22,20 +22,23 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.MAX_CRC_ERROR_COUNT = self.config["storage"]["max_CRC_error_count"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
 
-        # # For transmission speed stats
-        # self.start_time = time.time()
-        # self.total_data_size = 0
+        # For transmission speed stats
+        self.start_time = time.time()
+        self.total_data_size = 0
 
     def handleNotification(self, cHandle, data):
 
-        # # For transmission speed stats
-        # end_time = time.time()
-        # time_diff = end_time - self.start_time
-        # self.total_data_size += len(data)
-        # if time_diff >= 3:
-        #     displayTransmissionSpeed(time_diff, self.total_data_size)
-        #     self.start_time = time.time()
-        #     self.total_data_size = 0
+        # For transmission speed stats
+        end_time = time.time()
+        time_diff = end_time - self.start_time
+        self.total_data_size += len(data)
+        if time_diff >= 3:
+            speed_kbps = getTransmissionSpeed(time_diff, self.total_data_size)
+            self.logger.info(
+                f"Transmission speed over {time_diff:.2f} seconds: {speed_kbps:.2f} kbps"
+            )
+            self.start_time = time.time()
+            self.total_data_size = 0
 
         if len(self.buffer) + len(data) > self.MAX_BUFFER_SIZE:
             self.logger.warning("Buffer size limit exceeded. Discarding oldest data.")
@@ -75,9 +78,9 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
-            # self.logger.warning(
-            #     f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
-            # )
+            self.logger.warning(
+                f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
+            )
 
     def processIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)

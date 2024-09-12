@@ -72,9 +72,9 @@ def getCRC(data):
     return crc_value
 
 
-def displayTransmissionSpeed(time_diff, total_data_size):
+def getTransmissionSpeed(time_diff, total_data_size):
     speed_kbps = (total_data_size * 8 / 1000) / time_diff
-    print(f"Transmission speed over {time_diff:.2f} seconds: {speed_kbps:.2f} kbps")
+    return speed_kbps
 
 
 def getDeviceInfo(mac_address):
