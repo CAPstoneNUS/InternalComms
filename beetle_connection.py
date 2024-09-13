@@ -106,10 +106,8 @@ class BeetleConnection:
 
             if self.ack_flag:
                 self.sendACK()
-                if self.beetle.waitForNotifications(1.0):
-                    return True
+                return True
 
-            self.syn_flag, self.ack_flag = False, False
             return False
 
         except btle.BTLEDisconnectError:
@@ -138,3 +136,6 @@ class BeetleConnection:
 
     def getMACAddress(self):
         return self.mac_address
+
+    def writeCharacteristic(self, data):
+        self.serial_characteristic.write(data)
