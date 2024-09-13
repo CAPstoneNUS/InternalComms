@@ -1,6 +1,7 @@
 import time
 import struct
 from bluepy import btle
+from threading import Timer
 from utils import getCRC, getTransmissionSpeed
 
 
@@ -14,17 +15,25 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.data_queue = data_queue
         self.buffer = bytearray()
 
+        # Error handling counters
         self.crc_error_count = 0
         self.frag_packet_count = 0
+
+        # For transmission speed stats
+        self.start_time = time.time()
+        self.total_data_size = 0
+
+        # Gun and reload handling
+        self.unacknowledged_shots = set()
+        self.reload_in_progress = False
+        self.reload_timer = None
+        self.GUN_TIMEOUT = 3
+        self.RELOAD_TIMEOUT = 5
 
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
         self.MAX_CRC_ERROR_COUNT = self.config["storage"]["max_CRC_error_count"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
-
-        # For transmission speed stats
-        self.start_time = time.time()
-        self.total_data_size = 0
 
     def handleNotification(self, cHandle, data):
 
@@ -34,9 +43,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.total_data_size += len(data)
         if time_diff >= 3:
             speed_kbps = getTransmissionSpeed(time_diff, self.total_data_size)
-            self.logger.info(
-                f"Transmission speed over {time_diff:.2f} seconds: {speed_kbps:.2f} kbps"
-            )
+            # self.logger.info(
+            #     f"Transmission speed over {time_diff:.2f} seconds: {speed_kbps:.2f} kbps"
+            # )
             self.start_time = time.time()
             self.total_data_size = 0
 
@@ -63,6 +72,12 @@ class BeetleDelegate(btle.DefaultDelegate):
                     return
                 elif packet_type == ord("M"):
                     self.processIMUPacket(packet[1:-1])
+                elif packet_type == ord("G"):
+                    self.processGunPacket(packet[1:-1])
+                elif packet_type == ord("X"):
+                    self.handleGunACK(packet[1:-1])
+                elif packet_type == ord("M"):
+                    self.handleReloadSYNACK()
                 else:
                     self.logger.error(f"Unknown packet type: {chr(packet_type)}")
             else:
@@ -78,9 +93,9 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
-            self.logger.warning(
-                f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
-            )
+            # self.logger.warning(
+            #     f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
+            # )
 
     def processIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)
@@ -95,7 +110,72 @@ class BeetleDelegate(btle.DefaultDelegate):
             "gyrZ": gyrZ,
         }
         if self.data_queue.qsize() > self.MAX_QUEUE_SIZE:
-            self.logger.warning("Data queue is full. Discarding oldest data...")
+            self.logger.warning("Data queue full. Discarding oldest data...")
             self.data_queue.get()
 
         self.data_queue.put(imu_data)
+
+    def processGunPacket(self, data):
+        shotID = struct.unpack("<B", data[:1])[0]
+        if shotID not in self.unacknowledged_shots:
+            self.logger.info(f"Shot ID {shotID} received.")
+            self.unacknowledged_shots.add(shotID)
+            self.sendGunSYNACK(shotID)
+            # Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
+        else:
+            self.logger.error(f"Duplicate shot ID: {shotID}. Resending GUN SYN-ACK...")
+            self.sendGunSYNACK(shotID)
+
+    def sendGunSYNACK(self, shotID):
+        self.logger.info(f"Sending GUN SYN-ACK for Shot ID {shotID}...")
+        synack_packet = struct.pack("<bB17x", ord("X"), shotID)
+        crc = getCRC(synack_packet)
+        synack_packet += struct.pack("B", crc)
+        self.beetleConnection.writeCharacteristic(synack_packet)
+
+    def handleGunACK(self, data):
+        shotID = struct.unpack("<B", data[:1])[0]
+        if shotID in self.unacknowledged_shots:
+            self.unacknowledged_shots.remove(shotID)
+            self.logger.info(f"Shot ID {shotID} acknowledged.")
+        else:
+            self.logger.warning(f"Received ACK for unknown gun shot: {shotID}")
+
+    def handleGunTimeout(self, shotID):
+        if shotID in self.unacknowledged_shots:
+            self.logger.warning(f"Timeout for shot ID: {shotID}. Resending SYN-ACK.")
+            self.sendGunSYNACK(shotID)
+            # Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
+
+    def sendReload(self):
+        if not self.reload_in_progress:
+            self.reload_in_progress = True
+            self.logger.info("Sending RELOAD signal...")
+            reload_packet = struct.pack("<b18x", ord("R"))
+            crc = getCRC(reload_packet)
+            reload_packet += struct.pack("B", crc)
+            self.beetleConnection.writeCharacteristic(reload_packet)
+            # self.reload_timer = Timer(self.RELOAD_TIMEOUT, self.handleReloadTimeout)
+            self.reload_timer.start()
+
+    def handleReloadSYNACK(self):
+        if self.reload_in_progress:
+            self.reload_in_progress = False
+            if self.reload_timer:
+                self.reload_timer.cancel()
+            self.logger.info("Reload acknowledged by Arduino.")
+            self.sendReloadACK()
+        else:
+            self.logger.warning("Received unexpected RELOAD ACK.")
+
+    def sendReloadACK(self):
+        self.logger.info("Sending RELOAD ACK...")
+        ack_packet = struct.pack("<b18x", ord("Y"))
+        crc = getCRC(ack_packet)
+        ack_packet += struct.pack("B", crc)
+        self.beetleConnection.writeCharacteristic(ack_packet)
+
+    def handleReloadTimeout(self):
+        if self.reload_in_progress:
+            self.logger.warning("Reload timeout. Resending RELOAD signal.")
+            self.sendReload()
