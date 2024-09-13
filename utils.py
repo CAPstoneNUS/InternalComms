@@ -36,9 +36,8 @@ def dataConsumer(config, data_queue):
             csv_files[id].flush()
 
         except Exception as e:
-            print(
-                f"Filewrite error occurred: {str(e)}. Check if there is data in queue."
-            )
+            # print(f"Filewrite error - no data in queue.")
+            pass
 
 
 def setupLogger(config, mac_address):
