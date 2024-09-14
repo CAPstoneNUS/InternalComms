@@ -121,7 +121,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.logger.info(f"Shot ID {shotID} received.")
             self.unacknowledged_shots.add(shotID)
             self.sendGunSYNACK(shotID)
-            # Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
+            Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
         else:
             self.logger.error(f"Duplicate shot ID: {shotID}. Resending GUN SYN-ACK...")
             self.sendGunSYNACK(shotID)
@@ -145,7 +145,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         if shotID in self.unacknowledged_shots:
             self.logger.warning(f"Timeout for shot ID: {shotID}. Resending SYN-ACK.")
             self.sendGunSYNACK(shotID)
-            # Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
+            Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
 
     def sendReload(self):
         if not self.reload_in_progress:
