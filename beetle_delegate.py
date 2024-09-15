@@ -6,9 +6,9 @@ from utils import getCRC, getTransmissionSpeed
 
 
 class BeetleDelegate(btle.DefaultDelegate):
-    def __init__(self, beetleConnection, config, logger, mac_address, data_queue):
+    def __init__(self, beetle_connection, config, logger, mac_address, data_queue):
         btle.DefaultDelegate.__init__(self)
-        self.beetleConnection = beetleConnection
+        self.beetle_connection = beetle_connection
         self.config = config
         self.logger = logger
         self.beetle_id = mac_address[-2:]
@@ -68,7 +68,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             if calculated_crc == true_crc:
                 if packet_type == ord("A"):
                     self.logger.info("SYN-ACK received.")
-                    self.beetleConnection.setACKFlag(True)
+                    self.beetle_connection.setACKFlag(True)
                     return
                 elif packet_type == ord("M"):
                     self.processIMUPacket(packet[1:-1])
@@ -88,7 +88,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.logger.error(
                         f"CRC error count: {self.crc_error_count}. Force disconnecting..."
                     )
-                    self.beetleConnection.forceDisconnect()
+                    self.beetle_connection.forceDisconnect()
                     self.crc_error_count = 0
 
         if len(self.buffer) > 0:
@@ -131,7 +131,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         synack_packet = struct.pack("<bB17x", ord("X"), shotID)
         crc = getCRC(synack_packet)
         synack_packet += struct.pack("B", crc)
-        self.beetleConnection.writeCharacteristic(synack_packet)
+        self.beetle_connection.writeCharacteristic(synack_packet)
 
     def handleGunACK(self, data):
         shotID = struct.unpack("<B", data[:1])[0]
@@ -154,7 +154,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             reload_packet = struct.pack("<b18x", ord("R"))
             crc = getCRC(reload_packet)
             reload_packet += struct.pack("B", crc)
-            self.beetleConnection.writeCharacteristic(reload_packet)
+            self.beetle_connection.writeCharacteristic(reload_packet)
             # self.reload_timer = Timer(self.RELOAD_TIMEOUT, self.handleReloadTimeout)
             self.reload_timer.start()
 
@@ -173,7 +173,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         ack_packet = struct.pack("<b18x", ord("Y"))
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
-        self.beetleConnection.writeCharacteristic(ack_packet)
+        self.beetle_connection.writeCharacteristic(ack_packet)
 
     def handleReloadTimeout(self):
         if self.reload_in_progress:
