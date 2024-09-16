@@ -23,12 +23,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.start_time = time.time()
         self.total_data_size = 0
 
-        # Gun and reload handling
+        # Gun handling
         self.unacknowledged_shots = set()
-        self.reload_in_progress = False
-        self.reload_timer = None
         self.GUN_TIMEOUT = 3
-        self.RELOAD_TIMEOUT = 5
 
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
@@ -76,7 +73,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.processGunPacket(packet[1:-1])
                 elif packet_type == ord("X"):
                     self.handleGunACK(packet[1:-1])
-                elif packet_type == ord("M"):
+                elif packet_type == ord("Y"):
                     self.handleReloadSYNACK()
                 else:
                     self.logger.error(f"Unknown packet type: {chr(packet_type)}")
@@ -123,8 +120,9 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.sendGunSYNACK(shotID)
             Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
         else:
-            self.logger.error(f"Duplicate shot ID: {shotID}. Resending GUN SYN-ACK...")
-            self.sendGunSYNACK(shotID)
+            self.logger.warning(
+                f"Duplicate Shot ID received: {shotID}. Dropping packet..."
+            )
 
     def sendGunSYNACK(self, shotID):
         self.logger.info(f"Sending GUN SYN-ACK for Shot ID {shotID}...")
@@ -139,31 +137,20 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.unacknowledged_shots.remove(shotID)
             self.logger.info(f"Shot ID {shotID} acknowledged.")
         else:
-            self.logger.warning(f"Received ACK for unknown gun shot: {shotID}")
+            self.logger.warning(
+                f"Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
+            )
 
     def handleGunTimeout(self, shotID):
         if shotID in self.unacknowledged_shots:
-            self.logger.warning(f"Timeout for shot ID: {shotID}. Resending SYN-ACK.")
+            self.logger.warning(f"Timeout for Shot ID: {shotID}. Resending SYN-ACK.")
             self.sendGunSYNACK(shotID)
             Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
 
-    def sendReload(self):
-        if not self.reload_in_progress:
-            self.reload_in_progress = True
-            self.logger.info("Sending RELOAD signal...")
-            reload_packet = struct.pack("<b18x", ord("R"))
-            crc = getCRC(reload_packet)
-            reload_packet += struct.pack("B", crc)
-            self.beetle_connection.writeCharacteristic(reload_packet)
-            # self.reload_timer = Timer(self.RELOAD_TIMEOUT, self.handleReloadTimeout)
-            self.reload_timer.start()
-
     def handleReloadSYNACK(self):
-        if self.reload_in_progress:
-            self.reload_in_progress = False
-            if self.reload_timer:
-                self.reload_timer.cancel()
-            self.logger.info("Reload acknowledged by Arduino.")
+        if self.beetle_connection.getReloadInProgress():
+            self.logger.info("Received RELOAD SYN-ACK.")
+            self.beetle_connection.setReloadInProgress(False)
             self.sendReloadACK()
         else:
             self.logger.warning("Received unexpected RELOAD ACK.")
@@ -174,8 +161,3 @@ class BeetleDelegate(btle.DefaultDelegate):
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(ack_packet)
-
-    def handleReloadTimeout(self):
-        if self.reload_in_progress:
-            self.logger.warning("Reload timeout. Resending RELOAD signal.")
-            self.sendReload()

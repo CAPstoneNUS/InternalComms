@@ -7,17 +7,18 @@
 #define GUN_PACKET 'G'
 #define RELOAD_PACKET 'R'
 #define GUN_ACK_PACKET 'X'     // For gunshot SYN-ACK from laptop
-#define RELOAD_ACK_PACKET 'M'  // For reload ACK from laptop
+#define RELOAD_ACK_PACKET 'Y'  // For reload ACK from laptop
 
 CRC8 crc8;
 uint8_t currShot = 1;
 std::set<uint8_t> unacknowledgedShots;
 bool hasHandshake = false;
+bool reloadInProgress = false;
 unsigned long reloadStartTime = 0;
 unsigned long lastGunShotTime = 0;
-unsigned long responseTimeout = 3000;
+unsigned long responseTimeout = 1000;
 unsigned long gunInterval = random(10000);  // Shots at random
-const uint8_t magSize = 50;
+const uint8_t magSize = 6;
 uint8_t shotsInMag = magSize;
 
 struct Packet {
@@ -73,17 +74,24 @@ void handlePacket(Packet &packet) {
       hasHandshake = true;
       break;
     case GUN_ACK_PACKET:
-      if (unacknowledgedShots.erase(packet.shotID) > 0) {
-        sendPacket(GUN_ACK_PACKET, packet.shotID);
-      }
+      unacknowledgedShots.erase(packet.shotID);
+      sendPacket(GUN_ACK_PACKET, packet.shotID);
       break;
-    case RELOAD_PACKET:
-      sendPacket(RELOAD_ACK_PACKET, packet.shotID);
+    case RELOAD_PACKET: // recvs reload packet from laptop
+      sendPacket(RELOAD_ACK_PACKET);
+      reloadInProgress = true;
       reloadStartTime = millis();
       break;
     case RELOAD_ACK_PACKET:
+      if (!unacknowledgedShots.empty()) {
+        for (const auto& shot : unacknowledgedShots) {
+          sendPacket(GUN_PACKET, shot);
+        }
+      }
       unacknowledgedShots.clear();
+      currShot = 1;
       shotsInMag = magSize;
+      reloadInProgress = false;
       reloadStartTime = 0;
       break;
   }
@@ -111,7 +119,7 @@ void sendGunShot() {
 }
 
 void handleReloadTimeout() {
-  if (reloadStartTime > 0 && millis() - reloadStartTime >= responseTimeout) {
+  if (reloadInProgress && millis() - reloadStartTime >= responseTimeout) {
     // Reload timeout occurred, clear the reload state
     unacknowledgedShots.clear();
     reloadStartTime = 0;
