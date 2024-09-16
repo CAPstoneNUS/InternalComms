@@ -60,7 +60,6 @@ void sendIMUPacket() {
 
 void setup() {
   Serial.begin(115200);
-  hasHandshake = false;
 }
 
 void loop() {
@@ -74,11 +73,13 @@ void loop() {
     uint8_t calculatedCRC = (uint8_t)crc8.calc();
     uint8_t trueCRC = receivedPacket[19];
 
-    if ((packetType == SYN_PACKET) && (calculatedCRC == trueCRC)) {
-      sendACKPacket();
-    } else if ((packetType == ACK_PACKET) && (calculatedCRC == trueCRC)) {
-      hasHandshake = true;
-      lastSendTime = millis();
+    if (calculatedCRC == trueCRC) {
+      if (packetType == SYN_PACKET) {
+        sendACKPacket();
+      } else if (packetType == ACK_PACKET) {
+        hasHandshake = true;
+        lastSendTime = millis();
+      }
     }
   }
 
