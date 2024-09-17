@@ -1,8 +1,10 @@
 import time
 import struct
 import random
+import itertools
 from bluepy import btle
 from threading import Timer
+from collections import deque
 from utils import getCRC, getTransmissionSpeed, logPacketStats
 
 
@@ -14,7 +16,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.logger = logger
         self.beetle_id = mac_address[-2:]
         self.data_queue = data_queue
-        self.buffer = bytearray()
+        self.buffer = deque()
 
         # For transmission speed stats
         self.start_time = time.time()
@@ -39,35 +41,15 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.GUN_TIMEOUT = self.config["timeout"]["gun_timeout"]
 
     def handleNotification(self, cHandle, data):
-        # Display stats every 5 seconds
-        end_time = time.time()
-        time_diff = end_time - self.start_time
-        self.total_data_size += len(data)
-        if time_diff >= 5:
-            speed_kbps = getTransmissionSpeed(time_diff, self.total_data_size)
-            logPacketStats(
-                self.logger,
-                speed_kbps,
-                self.corrupt_packet_count,
-                self.dropped_packet_count,
-                self.frag_packet_count,
-            )
-            self.start_time = time.time()
-            self.total_data_size = 0
-
-        # Handle buffer overflow
-        if len(self.buffer) + len(data) > self.MAX_BUFFER_SIZE:
-            self.logger.warning("Buffer size limit exceeded. Discarding oldest data.")
-            self.buffer = self.buffer[-(self.MAX_BUFFER_SIZE - len(data)) :]
-
         self.buffer.extend(data)
 
         while len(self.buffer) >= self.PACKET_SIZE:
-            # Splice packet from buffer
-            packet = self.buffer[: self.PACKET_SIZE]
-            self.buffer = self.buffer[self.PACKET_SIZE :]
+            # Extract packet from buffer
+            packet = bytes(itertools.islice(self.buffer, self.PACKET_SIZE))
+            for _ in range(self.PACKET_SIZE):
+                self.buffer.popleft()
 
-            # Extract packet type and CRC
+            # Parse packet type and CRC
             packet_type = packet[0]
             calculated_crc = getCRC(packet[:-1])
             true_crc = struct.unpack("<B", packet[-1:])[0]
@@ -99,7 +81,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.logger.error(f"Unknown packet type: {chr(packet_type)}")
             else:
                 self.logger.error("CRC check failed. Clearing data buffer.")
-                self.buffer = bytearray()
+                self.buffer = deque()
                 self.crc_error_count += 1
                 if self.crc_error_count > self.config["storage"]["max_CRC_error_count"]:
                     self.logger.error(
@@ -110,6 +92,28 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
+
+        if len(self.buffer) > self.MAX_BUFFER_SIZE:
+            overflow = len(self.buffer) - self.MAX_BUFFER_SIZE
+            self.logger.warning(f"Buffer overflow. Discarding {overflow} bytes.")
+            for _ in range(overflow):
+                self.buffer.popleft()
+
+        # Display stats every 5 seconds
+        end_time = time.time()
+        time_diff = end_time - self.start_time
+        self.total_data_size += len(data)
+        if time_diff >= 5:
+            speed_kbps = getTransmissionSpeed(time_diff, self.total_data_size)
+            logPacketStats(
+                self.logger,
+                speed_kbps,
+                self.corrupt_packet_count,
+                self.dropped_packet_count,
+                self.frag_packet_count,
+            )
+            self.start_time = time.time()
+            self.total_data_size = 0
 
     def processIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)

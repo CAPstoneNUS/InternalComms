@@ -55,7 +55,6 @@ class BeetleConnection:
                 # Step 2: Do handshake
                 if self.beetle_state == BeetleState.CONNECTED:
                     if self.doHandshake():
-
                         self.beetle_state = BeetleState.READY
                     else:
                         self.logger.error(
