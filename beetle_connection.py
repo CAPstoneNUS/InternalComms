@@ -22,7 +22,7 @@ class BeetleConnection:
         self.beetle = None
         self.beetle_delegate = None
         self.beetle_state = BeetleState.DISCONNECTED
-        self.syn_flag, self.ack_flag = False, False
+        self._syn_flag, self._ack_flag = False, False
         self.serial_service, self.serial_characteristic = None, None
 
         self.SERVICE_UUID = config["uuid"]["service"]
@@ -33,7 +33,7 @@ class BeetleConnection:
         self.MAX_RELOAD_INTERVAL = config["timeout"]["max_reload_interval"]
 
         # For random reload request
-        self.reload_in_progress = False
+        self._reload_in_progress = False
         self.last_reload_time = time.time()
         self.reload_interval = random.uniform(
             self.MIN_RELOAD_INTERVAL, self.MAX_RELOAD_INTERVAL
@@ -113,16 +113,16 @@ class BeetleConnection:
             return False
 
     def doHandshake(self):
-        self.syn_flag, self.ack_flag = False, False
+        self._syn_flag, self._ack_flag = False, False
         try:
-            if not self.syn_flag:
+            if not self._syn_flag:
                 self.sendSYN()
                 if not self.beetle.waitForNotifications(1.0):
                     self.logger.error(f"Failed to receive SYN.")
                     return False
-                self.syn_flag = True
+                self._syn_flag = True
 
-            if self.ack_flag:
+            if self._ack_flag:
                 self.sendACK()
                 self.logger.info(f"Handshake successful!")
                 return True
@@ -134,8 +134,8 @@ class BeetleConnection:
             return False
 
     def sendReload(self):
-        if not self.reload_in_progress:
-            self.reload_in_progress = True
+        if not self._reload_in_progress:
+            self._reload_in_progress = True
             self.logger.info("<< Relaying RELOAD signal from above...")
             reload_packet = struct.pack("<b18x", ord("R"))
             crc = getCRC(reload_packet)
@@ -145,7 +145,7 @@ class BeetleConnection:
                 self.handleReloadTimeout()
 
     def handleReloadTimeout(self):
-        if self.reload_in_progress:
+        if self._reload_in_progress:
             self.logger.warning("Reload timeout. Resending RELOAD signal.")
             self.sendReload()
 
@@ -166,17 +166,21 @@ class BeetleConnection:
         ack_packet += struct.pack("B", crc)
         self.serial_characteristic.write(ack_packet)
 
-    def setACKFlag(self, value):
-        self.ack_flag = value
+    @property
+    def ack_flag(self):
+        return self._ack_flag
 
-    def getMACAddress(self):
-        return self.mac_address
+    @ack_flag.setter
+    def ack_flag(self, value):
+        self._ack_flag = value
 
-    def getReloadInProgress(self):
-        return self.reload_in_progress
+    @property
+    def reload_in_progress(self):
+        return self._reload_in_progress
 
-    def setReloadInProgress(self, value):
-        self.reload_in_progress = value
+    @reload_in_progress.setter
+    def reload_in_progress(self, value):
+        self._reload_in_progress = value
 
     def writeCharacteristic(self, data):
         self.serial_characteristic.write(data)

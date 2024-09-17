@@ -85,7 +85,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             if calculated_crc == true_crc:
                 if packet_type == ord("A"):
                     self.logger.info(">> SYN-ACK received.")
-                    self.beetle_connection.setACKFlag(True)
+                    self.beetle_connection.ack_flag = True
                     return
                 elif packet_type == ord("M"):
                     self.processIMUPacket(packet[1:-1])
@@ -167,10 +167,10 @@ class BeetleDelegate(btle.DefaultDelegate):
             Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
 
     def handleReloadSYNACK(self):
-        if self.beetle_connection.getReloadInProgress():
+        if self.beetle_connection.reload_in_progress:
             self.logger.info(">> Received RELOAD SYN-ACK.")
             self.successful_shots = []
-            self.beetle_connection.setReloadInProgress(False)
+            self.beetle_connection.reload_in_progress = False
             self.sendReloadACK()
         else:
             self.logger.warning(">> Received unexpected RELOAD ACK.")
