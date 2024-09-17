@@ -76,6 +76,17 @@ def getTransmissionSpeed(time_diff, total_data_size):
     return speed_kbps
 
 
+def logPacketStats(
+    logger, speed_kbps, corrupt_packet_count, dropped_packet_count, frag_packet_count
+):
+    logger.info("----------- Packet Stats -----------")
+    logger.info(f"Avg transmission speed: {speed_kbps:.2f} kbps")
+    logger.info(f"Corrupt packet count: {corrupt_packet_count}")
+    logger.info(f"Dropped packet count: {dropped_packet_count}")
+    logger.info(f"Fragmented packet count: {frag_packet_count}")
+    logger.info("------------------------------------")
+
+
 def getDeviceInfo(mac_address):
     try:
         device = btle.Peripheral(mac_address)

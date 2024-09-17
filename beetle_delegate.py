@@ -1,8 +1,9 @@
 import time
 import struct
+import random
 from bluepy import btle
 from threading import Timer
-from utils import getCRC, getTransmissionSpeed
+from utils import getCRC, getTransmissionSpeed, logPacketStats
 
 
 class BeetleDelegate(btle.DefaultDelegate):
@@ -15,37 +16,46 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.data_queue = data_queue
         self.buffer = bytearray()
 
-        # Error handling counters
-        self.crc_error_count = 0
-        self.frag_packet_count = 0
-
         # For transmission speed stats
         self.start_time = time.time()
         self.total_data_size = 0
 
         # Gun handling
         self.unacknowledged_shots = set()
-        self.GUN_TIMEOUT = 3
+        self.successful_shots = []
+
+        # Error handling counters
+        self.crc_error_count = 0
+        self.frag_packet_count = 0
+
+        # Testing
+        self.corrupt_packet_count = 0
+        self.dropped_packet_count = 0
 
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
         self.MAX_CRC_ERROR_COUNT = self.config["storage"]["max_CRC_error_count"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
+        self.GUN_TIMEOUT = self.config["timeout"]["gun_timeout"]
 
     def handleNotification(self, cHandle, data):
-
-        # For transmission speed stats
+        # Display stats every 5 seconds
         end_time = time.time()
         time_diff = end_time - self.start_time
         self.total_data_size += len(data)
-        if time_diff >= 3:
+        if time_diff >= 5:
             speed_kbps = getTransmissionSpeed(time_diff, self.total_data_size)
-            # self.logger.info(
-            #     f"Transmission speed over {time_diff:.2f} seconds: {speed_kbps:.2f} kbps"
-            # )
+            logPacketStats(
+                self.logger,
+                speed_kbps,
+                self.corrupt_packet_count,
+                self.dropped_packet_count,
+                self.frag_packet_count,
+            )
             self.start_time = time.time()
             self.total_data_size = 0
 
+        # Handle buffer overflow
         if len(self.buffer) + len(data) > self.MAX_BUFFER_SIZE:
             self.logger.warning("Buffer size limit exceeded. Discarding oldest data.")
             self.buffer = self.buffer[-(self.MAX_BUFFER_SIZE - len(data)) :]
@@ -61,6 +71,16 @@ class BeetleDelegate(btle.DefaultDelegate):
             packet_type = packet[0]
             calculated_crc = getCRC(packet[:-1])
             true_crc = struct.unpack("<B", packet[-1:])[0]
+
+            # Randomly corrupt data for testing
+            if random.random() < 0.1:
+                self.corrupt_packet_count += 1
+                data = bytearray([random.randint(0, 255) for _ in range(len(data))])
+
+            # Randomly drop packets for testing
+            if random.random() < 0.1:
+                self.dropped_packet_count += 1
+                return
 
             if calculated_crc == true_crc:
                 if packet_type == ord("A"):
@@ -90,9 +110,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
-            # self.logger.warning(
-            #     f"Fragmented packet count on Beetle {self.beetle_id}: {self.frag_packet_count}"
-            # )
 
     def processIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)
@@ -134,8 +151,10 @@ class BeetleDelegate(btle.DefaultDelegate):
     def handleGunACK(self, data):
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID in self.unacknowledged_shots:
+            self.successful_shots.append(shotID)
             self.unacknowledged_shots.remove(shotID)
             self.logger.info(f"Shot ID {shotID} acknowledged.")
+            self.logger.info(f"Successful shots: {self.successful_shots}")
         else:
             self.logger.warning(
                 f"Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
@@ -150,6 +169,7 @@ class BeetleDelegate(btle.DefaultDelegate):
     def handleReloadSYNACK(self):
         if self.beetle_connection.getReloadInProgress():
             self.logger.info("Received RELOAD SYN-ACK.")
+            self.successful_shots = []
             self.beetle_connection.setReloadInProgress(False)
             self.sendReloadACK()
         else:

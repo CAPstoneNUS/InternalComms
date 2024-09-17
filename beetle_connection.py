@@ -48,10 +48,10 @@ class BeetleConnection:
                         self.beetle_state = BeetleState.CONNECTED
                     else:
                         self.logger.error(
-                            f"Connection failed. Retrying in {self.RECONNECTION_INTERVAL} second(s)..."
+                            f"Dropping connection and retrying in {self.RECONNECTION_INTERVAL} second(s)..."
                         )
+                        self.beetle.disconnect()
                         time.sleep(self.RECONNECTION_INTERVAL)
-                        continue
 
                 # Step 2: Do handshake
                 if self.beetle_state == BeetleState.CONNECTED:

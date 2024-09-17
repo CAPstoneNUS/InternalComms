@@ -60,7 +60,9 @@ void loop() {
   }
 
   if (hasHandshake) {
-    sendGunShot();
+    if (!reloadInProgress) {
+      sendGunShot();
+    }
     handleReloadTimeout();
   }
 }
@@ -118,10 +120,10 @@ void sendGunShot() {
   }
 }
 
+// Reload timeout occurred, resend RELOAD ACK
 void handleReloadTimeout() {
   if (reloadInProgress && millis() - reloadStartTime >= responseTimeout) {
-    // Reload timeout occurred, clear the reload state
-    unacknowledgedShots.clear();
-    reloadStartTime = 0;
+    sendPacket(RELOAD_ACK_PACKET);
+    reloadStartTime = millis();
   }
 }
