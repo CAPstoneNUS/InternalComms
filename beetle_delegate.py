@@ -65,13 +65,12 @@ class BeetleDelegate(btle.DefaultDelegate):
                 return
 
             if calculated_crc != true_crc:
-                self.logger.error("CRC check failed. Clearing data buffer.")
-                self.buffer = deque()
                 self.crc_error_count += 1
-                if self.crc_error_count > self.MAX_CRC_ERROR_COUNT:
-                    self.logger.error(
-                        f"CRC error count: {self.crc_error_count}. Force disconnecting..."
-                    )
+                self.logger.error(
+                    f"CRC error count: {self.crc_error_count}. Discarding packet..."
+                )
+                if self.crc_error_count >= self.MAX_CRC_ERROR_COUNT:
+                    self.logger.error("CRC error limit reached. Force disconnecting...")
                     self.beetle_connection.forceDisconnect()
                     self.crc_error_count = 0
                 return

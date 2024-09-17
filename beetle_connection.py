@@ -64,7 +64,11 @@ class BeetleConnection:
 
                 # Step 3: Wait for notifications
                 if self.beetle_state == BeetleState.READY:
-                    self.beetle.waitForNotifications(1.0)
+                    if not self.beetle.waitForNotifications(10):
+                        self.logger.error(
+                            f"Failed to receive notifications. Disconnecting..."
+                        )
+                        self.forceDisconnect()
 
                     # Handle random reload request
                     current_time = time.time()
@@ -81,20 +85,21 @@ class BeetleConnection:
                 self.logger.error(
                     f"Disconnected. Reconnecting in {self.RECONNECTION_INTERVAL} second(s)..."
                 )
-                self.beetle_state = BeetleState.DISCONNECTED
+                self.forceDisconnect()
                 time.sleep(self.RECONNECTION_INTERVAL)
 
             except btle.BTLEException as e:
                 self.logger.error(f"Bluetooth error occurred: {e}")
-                self.beetle_state = BeetleState.DISCONNECTED
+                self.forceDisconnect()
 
             except Exception as e:
                 self.logger.exception(f"Unexpected error occurred: {e}")
-                self.beetle_state = BeetleState.DISCONNECTED
+                self.forceDisconnect()
 
     def openConnection(self):
         try:
-            self.beetle = btle.Peripheral(self.mac_address)
+            self.beetle = btle.Peripheral()
+            self.beetle.connect(self.mac_address)
             self.logger.info(f"Connected!")
 
             self.serial_service = self.beetle.getServiceByUUID(self.SERVICE_UUID)
@@ -149,6 +154,7 @@ class BeetleConnection:
             self.sendReload()
 
     def forceDisconnect(self):
+        self.beetle.disconnect()
         self.beetle_state = BeetleState.DISCONNECTED
 
     def sendSYN(self):
@@ -159,11 +165,15 @@ class BeetleConnection:
         self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
-        self.logger.info(f"<< Sending ACK...")
-        ack_packet = struct.pack("b18s", ord("A"), bytes(18))
-        crc = getCRC(ack_packet)
-        ack_packet += struct.pack("B", crc)
-        self.serial_characteristic.write(ack_packet)
+        if self._syn_flag:
+            self.logger.info(f"<< Sending ACK...")
+            ack_packet = struct.pack("b18s", ord("A"), bytes(18))
+            crc = getCRC(ack_packet)
+            ack_packet += struct.pack("B", crc)
+            self.serial_characteristic.write(ack_packet)
+
+    def writeCharacteristic(self, data):
+        self.serial_characteristic.write(data)
 
     @property
     def ack_flag(self):
@@ -180,6 +190,3 @@ class BeetleConnection:
     @reload_in_progress.setter
     def reload_in_progress(self, value):
         self._reload_in_progress = value
-
-    def writeCharacteristic(self, data):
-        self.serial_characteristic.write(data)
