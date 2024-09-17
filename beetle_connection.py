@@ -48,17 +48,14 @@ class BeetleConnection:
                         self.beetle_state = BeetleState.CONNECTED
                     else:
                         self.logger.error(
-                            f"Dropping connection and retrying in {self.RECONNECTION_INTERVAL} second(s)..."
+                            f"Reconnecting in {self.RECONNECTION_INTERVAL} second(s)..."
                         )
-                        self.beetle.disconnect()
                         time.sleep(self.RECONNECTION_INTERVAL)
 
                 # Step 2: Do handshake
                 if self.beetle_state == BeetleState.CONNECTED:
                     if self.doHandshake():
-                        self.logger.info(
-                            f"Handshake successful! Ready to receive data."
-                        )
+
                         self.beetle_state = BeetleState.READY
                     else:
                         self.logger.error(
@@ -127,6 +124,7 @@ class BeetleConnection:
 
             if self.ack_flag:
                 self.sendACK()
+                self.logger.info(f"Handshake successful!")
                 return True
 
             return False
@@ -138,7 +136,7 @@ class BeetleConnection:
     def sendReload(self):
         if not self.reload_in_progress:
             self.reload_in_progress = True
-            self.logger.info("Relaying RELOAD signal from above...")
+            self.logger.info("<< Relaying RELOAD signal from above...")
             reload_packet = struct.pack("<b18x", ord("R"))
             crc = getCRC(reload_packet)
             reload_packet += struct.pack("B", crc)
@@ -155,14 +153,14 @@ class BeetleConnection:
         self.beetle_state = BeetleState.DISCONNECTED
 
     def sendSYN(self):
-        self.logger.info(f"Sending SYN...")
+        self.logger.info(f"<< Sending SYN...")
         syn_packet = struct.pack("b18s", ord("S"), bytes(18))
         crc = getCRC(syn_packet)
         syn_packet += struct.pack("B", crc)
         self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
-        self.logger.info(f"Sending ACK...")
+        self.logger.info(f"<< Sending ACK...")
         ack_packet = struct.pack("b18s", ord("A"), bytes(18))
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)

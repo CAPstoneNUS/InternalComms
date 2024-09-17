@@ -73,18 +73,18 @@ class BeetleDelegate(btle.DefaultDelegate):
             true_crc = struct.unpack("<B", packet[-1:])[0]
 
             # Randomly corrupt data for testing
-            if random.random() < 0.1:
+            if random.random() <= 0.1:
                 self.corrupt_packet_count += 1
                 data = bytearray([random.randint(0, 255) for _ in range(len(data))])
 
             # Randomly drop packets for testing
-            if random.random() < 0.1:
+            if random.random() <= 0.1:
                 self.dropped_packet_count += 1
                 return
 
             if calculated_crc == true_crc:
                 if packet_type == ord("A"):
-                    self.logger.info("SYN-ACK received.")
+                    self.logger.info(">> SYN-ACK received.")
                     self.beetle_connection.setACKFlag(True)
                     return
                 elif packet_type == ord("M"):
@@ -132,17 +132,17 @@ class BeetleDelegate(btle.DefaultDelegate):
     def processGunPacket(self, data):
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID not in self.unacknowledged_shots:
-            self.logger.info(f"Shot ID {shotID} received.")
+            self.logger.info(f">> Shot ID {shotID} received.")
             self.unacknowledged_shots.add(shotID)
             self.sendGunSYNACK(shotID)
             Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
         else:
             self.logger.warning(
-                f"Duplicate Shot ID received: {shotID}. Dropping packet..."
+                f">> Duplicate Shot ID received: {shotID}. Dropping packet..."
             )
 
     def sendGunSYNACK(self, shotID):
-        self.logger.info(f"Sending GUN SYN-ACK for Shot ID {shotID}...")
+        self.logger.info(f"<< Sending GUN SYN-ACK for Shot ID {shotID}...")
         synack_packet = struct.pack("<bB17x", ord("X"), shotID)
         crc = getCRC(synack_packet)
         synack_packet += struct.pack("B", crc)
@@ -153,11 +153,11 @@ class BeetleDelegate(btle.DefaultDelegate):
         if shotID in self.unacknowledged_shots:
             self.successful_shots.append(shotID)
             self.unacknowledged_shots.remove(shotID)
-            self.logger.info(f"Shot ID {shotID} acknowledged.")
+            self.logger.info(f">> Shot ID {shotID} acknowledged.")
             self.logger.info(f"Successful shots: {self.successful_shots}")
         else:
             self.logger.warning(
-                f"Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
+                f">> Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
             )
 
     def handleGunTimeout(self, shotID):
@@ -168,15 +168,15 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleReloadSYNACK(self):
         if self.beetle_connection.getReloadInProgress():
-            self.logger.info("Received RELOAD SYN-ACK.")
+            self.logger.info(">> Received RELOAD SYN-ACK.")
             self.successful_shots = []
             self.beetle_connection.setReloadInProgress(False)
             self.sendReloadACK()
         else:
-            self.logger.warning("Received unexpected RELOAD ACK.")
+            self.logger.warning(">> Received unexpected RELOAD ACK.")
 
     def sendReloadACK(self):
-        self.logger.info("Sending RELOAD ACK...")
+        self.logger.info("<< Sending RELOAD ACK...")
         ack_packet = struct.pack("<b18x", ord("Y"))
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
