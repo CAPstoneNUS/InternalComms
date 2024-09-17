@@ -64,31 +64,32 @@ class BeetleDelegate(btle.DefaultDelegate):
                 self.dropped_packet_count += 1
                 return
 
-            if calculated_crc == true_crc:
-                if packet_type == ord("A"):
-                    self.logger.info(">> SYN-ACK received.")
-                    self.beetle_connection.ack_flag = True
-                    return
-                elif packet_type == ord("M"):
-                    self.processIMUPacket(packet[1:-1])
-                elif packet_type == ord("G"):
-                    self.processGunPacket(packet[1:-1])
-                elif packet_type == ord("X"):
-                    self.handleGunACK(packet[1:-1])
-                elif packet_type == ord("Y"):
-                    self.handleReloadSYNACK()
-                else:
-                    self.logger.error(f"Unknown packet type: {chr(packet_type)}")
-            else:
+            if calculated_crc != true_crc:
                 self.logger.error("CRC check failed. Clearing data buffer.")
                 self.buffer = deque()
                 self.crc_error_count += 1
-                if self.crc_error_count > self.config["storage"]["max_CRC_error_count"]:
+                if self.crc_error_count > self.MAX_CRC_ERROR_COUNT:
                     self.logger.error(
                         f"CRC error count: {self.crc_error_count}. Force disconnecting..."
                     )
                     self.beetle_connection.forceDisconnect()
                     self.crc_error_count = 0
+                return
+
+            if packet_type == ord("A"):
+                self.logger.info(">> SYN-ACK received.")
+                self.beetle_connection.ack_flag = True
+                return
+            elif packet_type == ord("M"):
+                self.processIMUPacket(packet[1:-1])
+            elif packet_type == ord("G"):
+                self.processGunPacket(packet[1:-1])
+            elif packet_type == ord("X"):
+                self.handleGunACK(packet[1:-1])
+            elif packet_type == ord("Y"):
+                self.handleReloadSYNACK()
+            else:
+                self.logger.error(f"Unknown packet type: {chr(packet_type)}")
 
         if len(self.buffer) > 0:
             self.frag_packet_count += 1
