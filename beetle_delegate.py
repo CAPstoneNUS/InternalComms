@@ -114,6 +114,9 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.total_data_size = 0
 
     def handleSYNACKPacket(self):
+        if self.beetle_connection.syn_flag and self.beetle_connection.ack_flag:
+            self.logger.warning(">> Duplicate SYN-ACK received. Dropping packet...")
+            return
         self.logger.info(">> SYN-ACK received.")
         self.beetle_connection.ack_flag = True
 

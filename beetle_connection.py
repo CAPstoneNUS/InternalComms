@@ -176,6 +176,10 @@ class BeetleConnection:
         self.serial_characteristic.write(data)
 
     @property
+    def syn_flag(self):
+        return self._syn_flag
+
+    @property
     def ack_flag(self):
         return self._ack_flag
 
