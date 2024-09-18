@@ -5,6 +5,19 @@ from utils import loadConfig, dataConsumer, setupLogger
 
 
 def main():
+    """
+    Main function to set up and run the Beetle communication system.
+
+    This function performs the following tasks:
+    1. Loads the configuration file
+    2. Initializes a (shared) data queue for communication between threads
+    3. Sets up a logger, connection and thread for each Beetle, and starts the threads
+    4. Creates and starts a consumer thread to process data from the queue
+    5. Waits for all threads to complete
+
+    The function uses threading to handle multiple Beetle connections concurrently
+    and manages data flow through a shared queue.
+    """
     config = loadConfig()
     beetle_macs = [
         config["device"]["beetle_1"],

@@ -14,6 +14,36 @@ class BeetleState(Enum):
 
 
 class BeetleConnection:
+    """
+    Manages the connection and communication with a Beetle.
+
+    This class handles the entire lifecycle of a Bluetooth connection with a Beetle,
+    including connection establishment, handshake, data transfer, and disconnection.
+
+    Attributes:
+        config (dict): Configuration dictionary loaded from the config.yaml file.
+        logger (Logger): Logger object for recording events and errors.
+        mac_address (str): MAC address of the Beetle.
+        data_queue (Queue): Shared queue for storing and passing data between threads.
+        beetle (Peripheral): Bluetooth peripheral object for the Beetle.
+        beetle_state (BeetleState): Current state of the connection.
+        _syn_flag (bool): Flag to indicate if SYN packet has been sent.
+        _ack_flag (bool): Flag to indicate if ACK packet has been received.
+        serial_service (Service): Bluetooth service object for serial communication.
+        serial_characteristic (Characteristic): Bluetooth characteristic object for serial communication.
+
+        SERVICE_UUID (str): UUID of the Bluetooth service.
+        CHARACTERISTIC_UUID (str): UUID of the Bluetooth characteristic.
+        HANDSHAKE_INTERVAL (float): Time interval for handshake attempts.
+        RECONNECTION_INTERVAL (float): Time interval for reconnection attempts.
+        MIN_RELOAD_INTERVAL (float): Minimum time interval between reload requests.
+        MAX_RELOAD_INTERVAL (float): Maximum time interval between reload requests.
+
+        _reload_in_progress (bool): Flag to indicate if a reload request is in progress.
+        last_reload_time (float): Time of the last reload request.
+        reload_interval (float): Time interval between reload requests.
+    """
+
     def __init__(self, config, logger, mac_address, data_queue):
         self.config = config
         self.logger = logger
@@ -40,6 +70,12 @@ class BeetleConnection:
         )
 
     def startComms(self):
+        """
+        Starts and maintains communication with the Beetle.
+
+        This method runs in a loop, handling connection, handshake, and data transfer.
+        It also manages error cases and reconnection attempts.
+        """
         while True:
             try:
                 # Step 1: Open connection
@@ -70,7 +106,7 @@ class BeetleConnection:
                         )
                         self.forceDisconnect()
 
-                    # Handle random reload request
+                    # Simulate reload request
                     current_time = time.time()
                     if (
                         current_time - self.last_reload_time >= self.reload_interval
@@ -97,6 +133,12 @@ class BeetleConnection:
                 self.forceDisconnect()
 
     def openConnection(self):
+        """
+        Establishes a Bluetooth connection with the Beetle.
+
+        Returns:
+            bool: True if connection is successful, False otherwise.
+        """
         try:
             self.beetle = btle.Peripheral()
             self.beetle.connect(self.mac_address)
@@ -117,6 +159,12 @@ class BeetleConnection:
             return False
 
     def doHandshake(self):
+        """
+        Performs the handshake protocol with the connected Beetle.
+
+        Returns:
+            bool: True if handshake is successful, False otherwise.
+        """
         self._syn_flag, self._ack_flag = False, False
         try:
             if not self._syn_flag:
@@ -138,6 +186,11 @@ class BeetleConnection:
             return False
 
     def sendReload(self):
+        """
+        Sends a reload signal to the Beetle.
+
+        This method is used to initiate a reload operation on the Beetle.
+        """
         if not self._reload_in_progress:
             self._reload_in_progress = True
             self.logger.info("<< Relaying RELOAD signal from above...")
@@ -149,15 +202,28 @@ class BeetleConnection:
                 self.handleReloadTimeout()
 
     def handleReloadTimeout(self):
+        """
+        Handles the case when a reload operation times out.
+
+        Attempts to resend the reload signal if a timeout occurs.
+        """
         if self._reload_in_progress:
             self.logger.warning("Reload timeout. Resending RELOAD signal.")
             self.sendReload()
 
     def forceDisconnect(self):
+        """
+        Forces a disconnection from the Beetle.
+
+        This method is typically called when an error occurs or when ending the connection.
+        """
         self.beetle.disconnect()
         self.beetle_state = BeetleState.DISCONNECTED
 
     def sendSYN(self):
+        """
+        Sends a SYN packet to the Beetle as part of the handshake process.
+        """
         self.logger.info(f"<< Sending SYN...")
         syn_packet = struct.pack("b18s", ord("S"), bytes(18))
         crc = getCRC(syn_packet)
@@ -165,6 +231,9 @@ class BeetleConnection:
         self.serial_characteristic.write(syn_packet)
 
     def sendACK(self):
+        """
+        Sends an ACK packet to the Beetle as part of the handshake process.
+        """
         if self._syn_flag:
             self.logger.info(f"<< Sending ACK...")
             ack_packet = struct.pack("b18s", ord("A"), bytes(18))

@@ -6,5 +6,3 @@ logs/
 *.yaml
 
 __pycache__/
-
-temp.py

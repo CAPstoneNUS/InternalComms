@@ -8,11 +8,25 @@ import yaml
 
 
 def loadConfig():
+    """
+    Load the configuration from the config.yaml file.
+    """
     with open("config.yaml", "r") as file:
         return yaml.safe_load(file)
 
 
 def dataConsumer(config, data_queue):
+    """
+    Consumer function to process data from the queue and write it to CSV files.
+
+    This function reads data from the queue and writes it to separate CSV files
+    based on the Beetle ID. It creates a new CSV file for each Beetle ID and
+    appends the data to the file as it arrives.
+
+    Args:
+    config (dict): The configuration dictionary loaded from the config.yaml file.
+    data_queue (Queue): The shared queue object for data storage.
+    """
     csv_files = {}
     csv_writers = {}
 
@@ -41,6 +55,20 @@ def dataConsumer(config, data_queue):
 
 
 def setupLogger(config, mac_address):
+    """
+    Set up a logger for the Beetle with the given MAC address.
+
+    This function creates a logger object for the Beetle with the given
+    MAC address. It configures the logger to write logs to a file in the logs
+    folder based on the MAC address.
+
+    Args:
+        config (dict): The configuration dictionary loaded from the config.yaml file.
+        mac_address (str): The MAC address of the Beetle.
+
+    Returns:
+        logger (Logger): The logger object for the Beetle.
+    """
     logs_dir = config["folder"]["logs"]
     if not os.path.exists(logs_dir):
         os.makedirs(logs_dir)
@@ -64,6 +92,15 @@ def setupLogger(config, mac_address):
 
 
 def getCRC(data):
+    """
+    Calculate the CRC-8 checksum for the given data.
+
+    Args:
+        data (bytes): The data to calculate the CRC for.
+
+    Returns:
+        crc_value (int): The CRC-8 checksum value for the data.
+    """
     crc = crc8.crc8()
     crc.update(data)
     bytes_crc = crc.digest()
@@ -72,6 +109,16 @@ def getCRC(data):
 
 
 def getTransmissionSpeed(time_diff, total_data_size):
+    """
+    Calculate the transmission speed in kbps based on the total data size and time taken.
+
+    Args:
+        time_diff (float): The time taken for data transmission in seconds.
+        total_data_size (int): The total size of data transmitted in bytes.
+
+    Returns:
+        speed_kbps (float): The transmission speed in kbps.
+    """
     speed_kbps = (total_data_size * 8 / 1000) / time_diff
     return speed_kbps
 
@@ -79,6 +126,9 @@ def getTransmissionSpeed(time_diff, total_data_size):
 def logPacketStats(
     logger, speed_kbps, corrupt_packet_count, dropped_packet_count, frag_packet_count
 ):
+    """
+    Log the packet statistics for the Beetle.
+    """
     logger.info("--------- PACKET STATS ---------")
     logger.info(f"Avg TX speed: {speed_kbps:.2f} kbps")
     logger.info(f"Corrupted packets: {corrupt_packet_count}")
@@ -88,6 +138,15 @@ def logPacketStats(
 
 
 def getDeviceInfo(mac_address):
+    """
+    Get information about the device with the given MAC address.
+
+    This function connects to the device using the Bluepy library and retrieves
+    information about the services and characteristics available on the device.
+
+    Args:
+        mac_address (str): The MAC address of the device to connect to.
+    """
     try:
         device = btle.Peripheral(mac_address)
         services = device.getServices()
