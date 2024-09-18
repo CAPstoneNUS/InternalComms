@@ -76,13 +76,11 @@ class BeetleDelegate(btle.DefaultDelegate):
                 return
 
             if packet_type == ord("A"):
-                self.logger.info(">> SYN-ACK received.")
-                self.beetle_connection.ack_flag = True
-                return
+                self.handleSYNACKPacket()
             elif packet_type == ord("M"):
-                self.processIMUPacket(packet[1:-1])
+                self.handleIMUPacket(packet[1:-1])
             elif packet_type == ord("G"):
-                self.processGunPacket(packet[1:-1])
+                self.handleGunPacket(packet[1:-1])
             elif packet_type == ord("X"):
                 self.handleGunACK(packet[1:-1])
             elif packet_type == ord("Y"):
@@ -115,7 +113,11 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.start_time = time.time()
             self.total_data_size = 0
 
-    def processIMUPacket(self, data):
+    def handleSYNACKPacket(self):
+        self.logger.info(">> SYN-ACK received.")
+        self.beetle_connection.ack_flag = True
+
+    def handleIMUPacket(self, data):
         unpacked_data = struct.unpack("<6h6x", data)
         accX, accY, accZ, gyrX, gyrY, gyrZ = unpacked_data
         imu_data = {
@@ -133,7 +135,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         self.data_queue.put(imu_data)
 
-    def processGunPacket(self, data):
+    def handleGunPacket(self, data):
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID not in self.unacknowledged_shots:
             self.logger.info(f">> Shot ID {shotID} received.")
