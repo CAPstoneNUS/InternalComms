@@ -158,6 +158,13 @@ class BeetleDelegate(btle.DefaultDelegate):
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID in self.unacknowledged_shots:
             self.successful_shots.append(shotID)
+            self.data_queue.put(
+                {
+                    "id": self.beetle_id,
+                    "shotID": shotID,
+                    "successfulShots": self.successful_shots,
+                }
+            )
             self.unacknowledged_shots.remove(shotID)
             self.logger.info(f">> Shot ID {shotID} acknowledged.")
             self.logger.info(f"Successful shots: {self.successful_shots}")
