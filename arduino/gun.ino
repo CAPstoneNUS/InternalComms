@@ -103,7 +103,7 @@ void sendGunShot() {
   unsigned long currentTime = millis();
 
   // Check if it's time to fire a new shot
-  if (currentTime - lastGunShotTime >= gunInterval && shotsInMag > 0) {
+  if ((currentTime - lastGunShotTime >= gunInterval) && (shotsInMag > 0) && (!reloadInProgress)) {
     unacknowledgedShots.insert(currShot);
     sendPacket(GUN_PACKET, currShot);
     lastGunShotTime = currentTime;
@@ -120,9 +120,9 @@ void sendGunShot() {
   }
 }
 
-// Reload timeout occurred, resend RELOAD ACK
 void handleReloadTimeout() {
   if (reloadInProgress && millis() - reloadStartTime >= responseTimeout) {
+    // Reload timeout occurred, resend RELOAD ACK
     sendPacket(RELOAD_ACK_PACKET);
     reloadStartTime = millis();
   }
