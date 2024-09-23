@@ -8,14 +8,16 @@ from collections import deque
 from utils import getCRC, getTransmissionSpeed, logPacketStats
 
 # Packet types (PKT)
-HS_ACK_PKT = "A"
+HS_SYNACK_PKT = "A"
 IMU_DATA_PKT = "M"
 GUN_PKT = "G"
 GUN_ACK_PKT = "X"
 GUN_NAK_PKT = "T"
 RELOAD_SYNACK_PKT = "Y"
-HEALTH_SYNACK_PKT = "Z"
-HEALTH_NAK_PKT = "N"
+VEST_PKT = "V"
+VEST_ACK_PKT = "Z"
+BOMB_SYNACK_PKT = "C"
+ACTION_SYNACK_PKT = "E"
 
 
 class BeetleDelegate(btle.DefaultDelegate):
@@ -69,6 +71,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         # Gun handling
         self._shot_in_progress = False
+        self.expected_shot_id = 1
         self.successful_shots = set()
         self.unacknowledged_shots = set()
 
@@ -96,11 +99,17 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         # Randomly corrupt data for testing
         if random.random() <= 0.1:
+            self.logger.warning(
+                f"Corrupting packet {chr(struct.unpack('B', data[0:1])[0])}..."
+            )
             self.corrupt_packet_count += 1
             data = bytearray([random.randint(0, 255) for _ in range(len(data))])
 
         # Randomly drop packets for testing
         if random.random() <= 0.1:
+            self.logger.warning(
+                f"Dropping packet {chr(struct.unpack('B', data[0:1])[0])}..."
+            )
             self.dropped_packet_count += 1
             return
 
@@ -135,7 +144,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                 return
 
             # Handle packet based on type
-            if packet_type == ord(HS_ACK_PKT):
+            if packet_type == ord(HS_SYNACK_PKT):
                 self.handleSYNACKPacket()
             elif packet_type == ord(IMU_DATA_PKT):
                 self.handleIMUPacket(packet[1:-1])
@@ -145,10 +154,14 @@ class BeetleDelegate(btle.DefaultDelegate):
                 self.handleGunACK(packet[1:-1])
             elif packet_type == ord(RELOAD_SYNACK_PKT):
                 self.handleReloadSYNACK()
-            elif packet_type == ord(HEALTH_SYNACK_PKT):
-                self.handleHealthSYNACK()
-            elif packet_type == ord(HEALTH_NAK_PKT):
-                self.handleHealthNAK()
+            elif packet_type == ord(VEST_PKT):  # player vest shot detected by IR
+                pass
+            elif packet_type == ord(VEST_ACK_PKT):  # vest shot ACK
+                pass
+            elif packet_type == ord(BOMB_SYNACK_PKT):
+                pass
+            elif packet_type == ord(ACTION_SYNACK_PKT):
+                pass
             else:
                 self.logger.error(f"Unknown packet type: {chr(packet_type)}")
 
@@ -220,11 +233,26 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             data (bytes): The gun shot packet.
         """
-        self._shot_in_progress = True
+        # Drop attempted shots during a reload
+        if self.beetle_connection.reload_in_progress:
+            self.logger.warning(">> Shot triggered while reloading. Dropping packet...")
+            return
+
+        # Send NAK if a shot is skipped and return
         shotID = struct.unpack("<B", data[:1])[0]
+        if shotID != self.expected_shot_id:
+            self.logger.warning(
+                f">> Skipped Shot ID {self.expected_shot_id} and got {shotID} instead."
+            )
+            self.sendGunNAK(self.expected_shot_id)
+            return
+
+        # Handle gun shot
+        self._shot_in_progress = True
         if shotID not in self.unacknowledged_shots:
             self.logger.info(f">> Shot ID {shotID} received.")
             self.unacknowledged_shots.add(shotID)
+            self.expected_shot_id = shotID + 1
             self.sendGunSYNACK(shotID)
             Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
         else:
@@ -256,8 +284,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID in self.unacknowledged_shots:
             self._shot_in_progress = False
+            self.unacknowledged_shots.remove(shotID)
             self.successful_shots.add(shotID)
-            # self.checkForMissingShots(shotID) # TBD
+            self.checkForMissingShots(shotID)
             self.data_queue.put(
                 {
                     "id": self.beetle_id,
@@ -265,7 +294,6 @@ class BeetleDelegate(btle.DefaultDelegate):
                     "successfulShots": self.successful_shots,
                 }
             )
-            self.unacknowledged_shots.remove(shotID)
             self.logger.info(f">> Shot ID {shotID} acknowledged.")
             self.logger.info(f"Successful shots: {self.successful_shots}")
         else:
@@ -275,21 +303,20 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def checkForMissingShots(self, curr_shot):
         """
-        Checks for missing Shot IDs and sends retransmission requests for them.
+        Check that all Shot IDs up to the current shot have been acknowledged.
+        If not, send retransmission requests for the missing shots.
 
         Args:
             curr_shot (int): The Shot ID of the current gun shot.
         """
-        for i in range(curr_shot + 1):
-            if i == 0:
-                continue
-            if i not in self.successful_shots:
+        for shot in range(1, curr_shot):
+            if shot not in self.successful_shots:
                 self.logger.warning(
-                    f"Missing Shot ID: {i}. Sending retransmission request."
+                    f"Missing Shot ID: {shot}. Sending retransmission request."
                 )
-                self.sendGunRetransmissionRequest(i)
+                self.sendGunNAK(shot)
 
-    def sendGunRetransmissionRequest(self, shotID):
+    def sendGunNAK(self, shotID):
         """
         Sends the retransmission request for the missing Shot ID.
 
@@ -297,7 +324,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             shotID (int): The Shot ID of the missing gun shot.
         """
         self.logger.info(f"<< Sending GUN NAK for Shot ID {shotID}...")
-        rt_packet = struct.pack("<bB17x", GUN_NAK_PKT, shotID)
+        rt_packet = struct.pack("<bB17x", ord(GUN_NAK_PKT), shotID)
         crc = getCRC(rt_packet)
         rt_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(rt_packet)
@@ -322,6 +349,8 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         if self.beetle_connection.reload_in_progress:
             self.logger.info(">> Received RELOAD SYN-ACK.")
+            self.expected_shot_id = 1
+            self.unacknowledged_shots = set()
             self.successful_shots = set()
             self.beetle_connection.reload_in_progress = False
             self.sendReloadACK()

@@ -6,6 +6,9 @@ from enum import Enum
 from beetle_delegate import BeetleDelegate
 from utils import getCRC
 
+HS_SYN_PKT = "S"
+HS_ACK_PKT = "A"
+
 
 class BeetleState(Enum):
     DISCONNECTED = 0
@@ -225,7 +228,7 @@ class BeetleConnection:
         Sends a SYN packet to the Beetle as part of the handshake process.
         """
         self.logger.info(f"<< Sending SYN...")
-        syn_packet = struct.pack("b18s", ord("S"), bytes(18))
+        syn_packet = struct.pack("b18s", ord(HS_SYN_PKT), bytes(18))
         crc = getCRC(syn_packet)
         syn_packet += struct.pack("B", crc)
         self.serial_characteristic.write(syn_packet)
@@ -236,7 +239,7 @@ class BeetleConnection:
         """
         if self._syn_flag:
             self.logger.info(f"<< Sending ACK...")
-            ack_packet = struct.pack("b18s", ord("A"), bytes(18))
+            ack_packet = struct.pack("b18s", ord(HS_ACK_PKT), bytes(18))
             crc = getCRC(ack_packet)
             ack_packet += struct.pack("B", crc)
             self.serial_characteristic.write(ack_packet)
