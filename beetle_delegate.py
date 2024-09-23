@@ -7,6 +7,16 @@ from threading import Timer
 from collections import deque
 from utils import getCRC, getTransmissionSpeed, logPacketStats
 
+# Packet types (PKT)
+HS_ACK_PKT = "A"
+IMU_DATA_PKT = "M"
+GUN_PKT = "G"
+GUN_ACK_PKT = "X"
+GUN_NAK_PKT = "T"
+RELOAD_SYNACK_PKT = "Y"
+HEALTH_SYNACK_PKT = "Z"
+HEALTH_NAK_PKT = "N"
+
 
 class BeetleDelegate(btle.DefaultDelegate):
     """
@@ -25,19 +35,22 @@ class BeetleDelegate(btle.DefaultDelegate):
         buffer (deque): Deque to store incoming data packets.
 
         start_time (float): Start time for calculating transmission speed.
-        total_data_size (int): Total size of data received in bytes.
+        total_window_data (int): Total size of data received in bytes. Reset everytime stats are displayed.
+        total_data (int): Total size of data received in bytes since start.
 
         unacknowledged_shots (set): Set to temporarily store Shot IDs with pending ACKs.
-        successful_shots (list): List to store Shot IDs that have been successfully acknowledged.
+        successful_shots (set): Set to store Shot IDs that have been successfully acknowledged.
 
-        crc_error_count (int): Count of CRC errors encountered.
         frag_packet_count (int): Count of fragmented packets received.
+        corrupt_packet_count (int): Count of corrupted packets received.
+        dropped_packet_count (int): Count of packets dropped.
 
         MAX_BUFFER_SIZE (int): Maximum buffer size for storing incoming data.
         MAX_QUEUE_SIZE (int): Maximum queue size for storing IMU data.
-        MAX_CRC_ERROR_COUNT (int): Maximum number of CRC errors allowed.
+        MAX_CORRUPT_PKT_PCT (int): Maximum percentage of corrupt packets to tolerate before disconnecting.
         PACKET_SIZE (int): Size of each data packet.
         GUN_TIMEOUT (int): Timeout duration for gun shot acknowledgements.
+        STATS_LOG_INTERVAL (int): Interval for displaying transmission speed stats.
     """
 
     def __init__(self, beetle_connection, config, logger, mac_address, data_queue):
@@ -51,25 +64,27 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         # For transmission speed stats
         self.start_time = time.time()
-        self.total_data_size = 0
+        self.total_window_data = 0
+        self.total_data = 0
 
         # Gun handling
+        self._shot_in_progress = False
+        self.successful_shots = set()
         self.unacknowledged_shots = set()
-        self.successful_shots = []
 
-        # Error handling counters
-        self.crc_error_count = 0
+        # Counters
         self.frag_packet_count = 0
-
-        # Testing
         self.corrupt_packet_count = 0
+        self.total_corrupted_packets = 0
         self.dropped_packet_count = 0
 
+        self.MAG_SIZE = self.config["storage"]["mag_size"]
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
-        self.MAX_CRC_ERROR_COUNT = self.config["storage"]["max_CRC_error_count"]
+        self.MAX_CORRUPT_PKT_PCT = self.config["storage"]["max_corrupt_pkt_pct"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
-        self.GUN_TIMEOUT = self.config["timeout"]["gun_timeout"]
+        self.GUN_TIMEOUT = self.config["time"]["gun_timeout"]
+        self.STATS_LOG_INTERVAL = config["time"]["stats_log_interval"]
 
     def handleNotification(self, cHandle, data):
         """
@@ -79,8 +94,19 @@ class BeetleDelegate(btle.DefaultDelegate):
             cHandle (int): The characteristic handle from which the data was received.
             data (bytes): The data received from the Beetle
         """
+        # Randomly corrupt data for testing
+        if random.random() <= 0.1:
+            self.corrupt_packet_count += 1
+            data = bytearray([random.randint(0, 255) for _ in range(len(data))])
+
+        # Randomly drop packets for testing
+        if random.random() <= 0.1:
+            self.dropped_packet_count += 1
+            return
+
         # Add incoming data to buffer
         self.buffer.extend(data)
+        self.total_data += len(data)
 
         while len(self.buffer) >= self.PACKET_SIZE:
             # Extract a single packet from buffer
@@ -93,39 +119,36 @@ class BeetleDelegate(btle.DefaultDelegate):
             calculated_crc = getCRC(packet[:-1])
             true_crc = struct.unpack("<B", packet[-1:])[0]
 
-            # Randomly corrupt data for testing
-            if random.random() <= 0.1:
-                self.corrupt_packet_count += 1
-                data = bytearray([random.randint(0, 255) for _ in range(len(data))])
-
-            # Randomly drop packets for testing
-            if random.random() <= 0.1:
-                self.dropped_packet_count += 1
-                return
-
             # Check CRC
             if calculated_crc != true_crc:
-                self.crc_error_count += 1
-                self.logger.error(
-                    f"CRC error count: {self.crc_error_count}. Discarding packet..."
-                )
-                if self.crc_error_count >= self.MAX_CRC_ERROR_COUNT:
-                    self.logger.error("CRC error limit reached. Force disconnecting...")
+                self.corrupt_packet_count += 1
+                self.total_corrupted_packets += 1
+                if (
+                    self.corrupt_packet_count
+                    >= self.MAX_CORRUPT_PKT_PCT * 0.01 * self.total_data
+                ):
+                    self.logger.error(
+                        "Corrupt packet limit reached. Force disconnecting..."
+                    )
                     self.beetle_connection.forceDisconnect()
-                    self.crc_error_count = 0
+                    self.corrupt_packet_count = 0
                 return
 
             # Handle packet based on type
-            if packet_type == ord("A"):
+            if packet_type == ord(HS_ACK_PKT):
                 self.handleSYNACKPacket()
-            elif packet_type == ord("M"):
+            elif packet_type == ord(IMU_DATA_PKT):
                 self.handleIMUPacket(packet[1:-1])
-            elif packet_type == ord("G"):
+            elif packet_type == ord(GUN_PKT):
                 self.handleGunPacket(packet[1:-1])
-            elif packet_type == ord("X"):
+            elif packet_type == ord(GUN_ACK_PKT):
                 self.handleGunACK(packet[1:-1])
-            elif packet_type == ord("Y"):
+            elif packet_type == ord(RELOAD_SYNACK_PKT):
                 self.handleReloadSYNACK()
+            elif packet_type == ord(HEALTH_SYNACK_PKT):
+                self.handleHealthSYNACK()
+            elif packet_type == ord(HEALTH_NAK_PKT):
+                self.handleHealthNAK()
             else:
                 self.logger.error(f"Unknown packet type: {chr(packet_type)}")
 
@@ -143,18 +166,18 @@ class BeetleDelegate(btle.DefaultDelegate):
         # Display stats every 5 seconds
         end_time = time.time()
         time_diff = end_time - self.start_time
-        self.total_data_size += len(data)
-        if time_diff >= 5:
-            speed_kbps = getTransmissionSpeed(time_diff, self.total_data_size)
+        self.total_window_data += len(data)
+        if time_diff >= self.STATS_LOG_INTERVAL:
+            speed_kbps = getTransmissionSpeed(time_diff, self.total_window_data)
             logPacketStats(
                 self.logger,
                 speed_kbps,
-                self.corrupt_packet_count,
+                self.total_corrupted_packets,
                 self.dropped_packet_count,
                 self.frag_packet_count,
             )
             self.start_time = time.time()
-            self.total_data_size = 0
+            self.total_window_data = 0
 
     def handleSYNACKPacket(self):
         """
@@ -197,6 +220,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             data (bytes): The gun shot packet.
         """
+        self._shot_in_progress = True
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID not in self.unacknowledged_shots:
             self.logger.info(f">> Shot ID {shotID} received.")
@@ -223,14 +247,17 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleGunACK(self, data):
         """
-        Appends the Shot ID to the successful_shots list(), puts it in the queue and removes it from unacknowledged_shots set().
+        Appends the Shot ID to the successful_shots list(), puts it
+        in the queue and removes it from unacknowledged_shots set().
 
         Args:
             data (bytes): The gun shot acknowledgement packet.
         """
         shotID = struct.unpack("<B", data[:1])[0]
         if shotID in self.unacknowledged_shots:
-            self.successful_shots.append(shotID)
+            self._shot_in_progress = False
+            self.successful_shots.add(shotID)
+            # self.checkForMissingShots(shotID) # TBD
             self.data_queue.put(
                 {
                     "id": self.beetle_id,
@@ -246,6 +273,35 @@ class BeetleDelegate(btle.DefaultDelegate):
                 f">> Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
             )
 
+    def checkForMissingShots(self, curr_shot):
+        """
+        Checks for missing Shot IDs and sends retransmission requests for them.
+
+        Args:
+            curr_shot (int): The Shot ID of the current gun shot.
+        """
+        for i in range(curr_shot + 1):
+            if i == 0:
+                continue
+            if i not in self.successful_shots:
+                self.logger.warning(
+                    f"Missing Shot ID: {i}. Sending retransmission request."
+                )
+                self.sendGunRetransmissionRequest(i)
+
+    def sendGunRetransmissionRequest(self, shotID):
+        """
+        Sends the retransmission request for the missing Shot ID.
+
+        Args:
+            shotID (int): The Shot ID of the missing gun shot.
+        """
+        self.logger.info(f"<< Sending GUN NAK for Shot ID {shotID}...")
+        rt_packet = struct.pack("<bB17x", GUN_NAK_PKT, shotID)
+        crc = getCRC(rt_packet)
+        rt_packet += struct.pack("B", crc)
+        self.beetle_connection.writeCharacteristic(rt_packet)
+
     def handleGunTimeout(self, shotID):
         """
         Resends the GUN SYN-ACK packet if no ACK is received within the timeout duration.
@@ -254,7 +310,9 @@ class BeetleDelegate(btle.DefaultDelegate):
             shotID (int): The Shot ID of the gun shot.
         """
         if shotID in self.unacknowledged_shots:
-            self.logger.warning(f"Timeout for Shot ID: {shotID}. Resending SYN-ACK.")
+            self.logger.warning(
+                f"Timeout for Shot ID: {shotID}. Resending GUN SYN-ACK."
+            )
             self.sendGunSYNACK(shotID)
             Timer(self.GUN_TIMEOUT, self.handleGunTimeout, args=[shotID]).start()
 
@@ -264,7 +322,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         if self.beetle_connection.reload_in_progress:
             self.logger.info(">> Received RELOAD SYN-ACK.")
-            self.successful_shots = []
+            self.successful_shots = set()
             self.beetle_connection.reload_in_progress = False
             self.sendReloadACK()
         else:
@@ -279,3 +337,23 @@ class BeetleDelegate(btle.DefaultDelegate):
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(ack_packet)
+
+    def handleHealthSYNACK(self):
+        # Logic to be added later
+        pass
+
+    def handleHealthNAK(self):
+        # Logic to be added later
+        pass
+
+    def handleHealthTimeout(self):
+        # Logic to be added later
+        pass
+
+    @property
+    def shot_in_progress(self):
+        return self._shot_in_progress
+
+    @shot_in_progress.setter
+    def shot_in_progress(self, value):
+        self.shot_in_progress = value

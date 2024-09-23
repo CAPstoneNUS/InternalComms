@@ -35,9 +35,9 @@ class BeetleConnection:
         SERVICE_UUID (str): UUID of the Bluetooth service.
         CHARACTERISTIC_UUID (str): UUID of the Bluetooth characteristic.
         HANDSHAKE_INTERVAL (float): Time interval for handshake attempts.
-        RECONNECTION_INTERVAL (float): Time interval for reconnection attempts.
-        MIN_RELOAD_INTERVAL (float): Minimum time interval between reload requests.
-        MAX_RELOAD_INTERVAL (float): Maximum time interval between reload requests.
+        RECONNECTION_INTERVAL (int): Time interval for reconnection attempts.
+        MIN_RELOAD_INTERVAL (int): Minimum time interval between reload requests.
+        MAX_RELOAD_INTERVAL (int): Maximum time interval between reload requests.
 
         _reload_in_progress (bool): Flag to indicate if a reload request is in progress.
         last_reload_time (float): Time of the last reload request.
@@ -57,10 +57,10 @@ class BeetleConnection:
 
         self.SERVICE_UUID = config["uuid"]["service"]
         self.CHARACTERISTIC_UUID = config["uuid"]["characteristic"]
-        self.HANDSHAKE_INTERVAL = config["timeout"]["handshake_interval"]
-        self.RECONNECTION_INTERVAL = config["timeout"]["reconnection_interval"]
-        self.MIN_RELOAD_INTERVAL = config["timeout"]["min_reload_interval"]
-        self.MAX_RELOAD_INTERVAL = config["timeout"]["max_reload_interval"]
+        self.HANDSHAKE_INTERVAL = config["time"]["handshake_interval"]
+        self.RECONNECTION_INTERVAL = config["time"]["reconnection_interval"]
+        self.MIN_RELOAD_INTERVAL = config["time"]["min_reload_interval"]
+        self.MAX_RELOAD_INTERVAL = config["time"]["max_reload_interval"]
 
         # For random reload request
         self._reload_in_progress = False
@@ -155,7 +155,7 @@ class BeetleConnection:
             return True
 
         except btle.BTLEDisconnectError or btle.BTLEException as e:
-            self.logger.error(e)
+            self.logger.error(f"Connection failed: {e}")
             return False
 
     def doHandshake(self):
