@@ -103,7 +103,7 @@ class BeetleConnection:
 
                 # Step 3: Wait for notifications
                 if self.beetle_state == BeetleState.READY:
-                    if not self.beetle.waitForNotifications(10):
+                    if not self.beetle.waitForNotifications(20):
                         self.logger.error(
                             f"Failed to receive notifications. Disconnecting..."
                         )
@@ -114,7 +114,7 @@ class BeetleConnection:
                     if (
                         current_time - self.last_reload_time >= self.reload_interval
                     ) and (self.mac_address == self.config["device"]["beetle_1"]):
-                        self.sendReload()
+                        # self.sendReload()
                         self.last_reload_time = current_time
                         self.reload_interval = random.uniform(
                             self.MIN_RELOAD_INTERVAL, self.MAX_RELOAD_INTERVAL

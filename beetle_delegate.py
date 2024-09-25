@@ -11,13 +11,14 @@ from utils import getCRC, getTransmissionSpeed, logPacketStats
 HS_SYNACK_PKT = "A"
 IMU_DATA_PKT = "M"
 GUN_PKT = "G"
-GUN_ACK_PKT = "X"
-GUN_NAK_PKT = "T"
-RELOAD_SYNACK_PKT = "Y"
 VEST_PKT = "V"
+GUN_ACK_PKT = "X"
 VEST_ACK_PKT = "Z"
+GUN_NAK_PKT = "T"
 BOMB_SYNACK_PKT = "C"
+RELOAD_SYNACK_PKT = "Y"
 ACTION_SYNACK_PKT = "E"
+SHIELD_SYNACK_PKT = "Q"
 
 
 class BeetleDelegate(btle.DefaultDelegate):
@@ -97,21 +98,21 @@ class BeetleDelegate(btle.DefaultDelegate):
             cHandle (int): The characteristic handle from which the data was received.
             data (bytes): The data received from the Beetle
         """
-        # Randomly corrupt data for testing
-        if random.random() <= 0.1:
-            self.logger.warning(
-                f"Corrupting packet {chr(struct.unpack('B', data[0:1])[0])}..."
-            )
-            self.corrupt_packet_count += 1
-            data = bytearray([random.randint(0, 255) for _ in range(len(data))])
+        # # Randomly corrupt data for testing
+        # if random.random() <= 0.1:
+        #     self.logger.warning(
+        #         f"Corrupting packet {chr(struct.unpack('B', data[0:1])[0])}..."
+        #     )
+        #     self.corrupt_packet_count += 1
+        #     data = bytearray([random.randint(0, 255) for _ in range(len(data))])
 
-        # Randomly drop packets for testing
-        if random.random() <= 0.1:
-            self.logger.warning(
-                f"Dropping packet {chr(struct.unpack('B', data[0:1])[0])}..."
-            )
-            self.dropped_packet_count += 1
-            return
+        # # Randomly drop packets for testing
+        # if random.random() <= 0.1:
+        #     self.logger.warning(
+        #         f"Dropping packet {chr(struct.unpack('B', data[0:1])[0])}..."
+        #     )
+        #     self.dropped_packet_count += 1
+        #     return
 
         # Add incoming data to buffer
         self.buffer.extend(data)
@@ -155,13 +156,15 @@ class BeetleDelegate(btle.DefaultDelegate):
             elif packet_type == ord(RELOAD_SYNACK_PKT):
                 self.handleReloadSYNACK()
             elif packet_type == ord(VEST_PKT):  # player vest shot detected by IR
-                pass
+                self.handleVestPacket(packet[1:-1])
             elif packet_type == ord(VEST_ACK_PKT):  # vest shot ACK
-                pass
+                self.handleVestACK(packet[1:-1])
             elif packet_type == ord(BOMB_SYNACK_PKT):
-                pass
+                self.handleBombSYNACK()
             elif packet_type == ord(ACTION_SYNACK_PKT):
-                pass
+                self.handleActionSYNACK()
+            elif packet_type == ord(SHIELD_SYNACK_PKT):
+                self.handleShieldSYNACK()
             else:
                 self.logger.error(f"Unknown packet type: {chr(packet_type)}")
 
@@ -367,15 +370,26 @@ class BeetleDelegate(btle.DefaultDelegate):
         ack_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(ack_packet)
 
-    def handleHealthSYNACK(self):
-        # Logic to be added later
+    def handleVestPacket(self, data):
+        pass
+
+    def handleVestACK(self, data):
+        pass
+
+    def handleBombSYNACK(self):
+        pass
+
+    def handleActionSYNACK(self):
+        pass
+
+    def handleShieldSYNACK(self):
         pass
 
     def handleHealthNAK(self):
         # Logic to be added later
         pass
 
-    def handleHealthTimeout(self):
+    def handleBombTimeout(self):
         # Logic to be added later
         pass
 
