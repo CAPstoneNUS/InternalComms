@@ -110,7 +110,6 @@ void setup() {
 }
 
 int buttonState = 0;
-int prevButtonState = 0;
 
 unsigned long previousIMUMillis = 0;    // Variable to store the last time readIMU() was executed
 const unsigned long IMUinterval = 100;  // Interval in milliseconds (100 ms)
@@ -154,64 +153,52 @@ void loop() {
   }
 }
 
-// Reads the button state and triggers the laser
-// Appends the shot to the unacknowledgedShots set
+
+const unsigned long debounceDelay = 50; // Debounce time in milliseconds
+unsigned long lastDebounceTime = 0;
+int lastButtonState = HIGH;
+
 void readButton(unsigned long currMillis) {
-  buttonState = digitalRead(BUTTON);
+  int reading = digitalRead(BUTTON);
 
-  // Serial.println(buttonState);
-  // digitalWrite(LASER, HIGH);
-
-  // Button press detected (low to high transition)
-  if (prevButtonState == LOW && buttonState == HIGH) {
-    buttonPressTime = currMillis;  // Record the time the button is pressed
-    buttonPressed = true;
+  // If the button state has changed, reset the debounce timer
+  if (reading != lastButtonState) {
+    lastDebounceTime = currMillis;
   }
 
-  // Button release detected (high to low transition)
-  if (prevButtonState == HIGH && buttonState == LOW) {
-    buttonPressed = false;
+  // Check if enough time has passed since the last state change
+  if ((currMillis - lastDebounceTime) > debounceDelay) {
+    // If the button state has changed:
+    if (reading != buttonState) {
+      buttonState = reading;
 
-    // Check if it was a short press (less than 2 seconds) ==> GUN SHOT TRIGGERED
-    if (currMillis - buttonPressTime < longPressDuration) {
-      if (shotsInMag > 0) {
-        IrSender.sendNEC(RED_ENCODING_VALUE, 32);
+      // Button press detected (low to high transition)
+      if (buttonState == HIGH) {
+        if (shotsInMag > 0) {
+          IrSender.sendNEC(RED_ENCODING_VALUE, 32);
+          shotsInMag--;
+          unacknowledgedShots.insert(currShot);
+          lastGunShotTime = currMillis;
+          currShot++;
+          updateLED(shotsInMag);  // updates led strip and reloads mag if empty
+        }
       }
-      shotsInMag--;
-      unacknowledgedShots.insert(currShot);
-      lastGunShotTime = currMillis;
-      currShot++;
-      updateLED(shotsInMag);  // updates led strip and reloads mag if empty
-      //   Serial.print("Shoot");
     }
   }
 
-  // Check for a long press (button held down for at least 2 seconds)
-  if (buttonPressed && (currMillis - buttonPressTime >= longPressDuration)) {
-    IrSender.sendNEC(ACTION_ENCODING_VALUE, 32);
-    // reloadMag();
-    // Serial.print("Reloaded");
-
-    // Prevent further toggling until button is released
-    buttonPressed = false;
-  }
-
-  prevButtonState = buttonState;
-  delay(50);
+  lastButtonState = reading;
 }
+
 
 void mpu_setup() {
   if (!mpu.begin()) {
-    // Serial.println("Failed to find MPU6050 chip");
     while (1) {
       delay(10);
     }
   }
-  //   Serial.println("MPU6050 Found!");
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
-  //   Serial.println("");
   delay(100);
 }
 
