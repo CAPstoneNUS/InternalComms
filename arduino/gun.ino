@@ -9,6 +9,7 @@
 
 #define SYN_PACKET 'S'
 #define ACK_PACKET 'A'  // For handshaking
+#define IMU_PACKET 'M'
 #define GUN_PACKET 'G'
 #define RELOAD_PACKET 'R'
 #define GUN_ACK_PACKET 'X'     // For gunshot SYN-ACK from laptop
@@ -106,13 +107,13 @@ void setup() {
   IrSender.begin(IR_PIN);
   pixels.begin();
   reloadMag();
-  mpu_setup();
+  mpuSetup();
 }
 
 int buttonState = 0;
 
-unsigned long previousIMUMillis = 0;    // Variable to store the last time readIMU() was executed
-const unsigned long IMUinterval = 100;  // Interval in milliseconds (100 ms)
+unsigned long previousIMUMillis = 0;    // Variable to store the last time sendIMUData() was executed
+const unsigned long IMUInterval = 100;  // Interval in milliseconds (100 ms)
 
 
 void loop() {
@@ -135,13 +136,12 @@ void loop() {
     unsigned long currMillis = millis();
 
     // Read the button state and trigger the laser
-    readButton(currMillis);
+    // readButton(currMillis);
 
-
-    // Check if 100 ms has passed since the last time readIMU() was called
-    if (currMillis - previousIMUMillis >= IMUinterval) {
+    // Check if 100 ms has passed since the last time sendIMUData() was called
+    if (currMillis - previousIMUMillis >= IMUInterval) {
       previousIMUMillis = currMillis;  // Save the current time
-      readIMU();                       // Execute the readIMU() function
+      sendIMUData();
     }
 
     // Handle resending of unacknowledged shots
@@ -176,9 +176,10 @@ void readButton(unsigned long currMillis) {
       if (buttonState == HIGH) {
         if (shotsInMag > 0) {
           IrSender.sendNEC(RED_ENCODING_VALUE, 32);
-          shotsInMag--;
+          sendPacket(GUN_PACKET, currShot);
           unacknowledgedShots.insert(currShot);
           lastGunShotTime = currMillis;
+          shotsInMag--;
           currShot++;
           updateLED(shotsInMag);  // updates led strip and reloads mag if empty
         }
@@ -190,7 +191,7 @@ void readButton(unsigned long currMillis) {
 }
 
 
-void mpu_setup() {
+void mpuSetup() {
   if (!mpu.begin()) {
     while (1) {
       delay(10);
@@ -202,10 +203,38 @@ void mpu_setup() {
   delay(100);
 }
 
-void readIMU() {
+struct IMUPacket {
+  char packetType;
+  int16_t accX;
+  int16_t accY;
+  int16_t accZ;
+  int16_t gyrX;
+  int16_t gyrY;
+  int16_t gyrZ;
+  byte padding[6];
+  uint8_t crc;
+};
+
+void sendIMUData() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
   calibrateIMU(&a, &g);
+
+  IMUPacket imuPacket;
+  imuPacket.packetType = IMU_PACKET;
+  imuPacket.accX = a.acceleration.x * 100;
+  imuPacket.accY = a.acceleration.y * 100;
+  imuPacket.accZ = a.acceleration.z * 100;
+  imuPacket.gyrX = g.gyro.x * 100;
+  imuPacket.gyrY = g.gyro.y * 100;
+  imuPacket.gyrZ = g.gyro.z * 100;
+  memset(imuPacket.padding, 0, sizeof(imuPacket.padding));
+
+  crc8.restart();
+  crc8.add((uint8_t *)&imuPacket, sizeof(IMUPacket) - sizeof(imuPacket.crc));
+  imuPacket.crc = (uint8_t)crc8.calc();
+
+  Serial.write((byte *)&imuPacket, sizeof(imuPacket));
 
   //   /* Print out the values */
   //   Serial.print("Acceleration X: ");
@@ -260,6 +289,7 @@ void updateLED(int shotsInMag) {
 #define OFFSET_G_Z 0.01
 
 void calibrateIMU(sensors_event_t *a, sensors_event_t *g) {
+  // Apply accelerometer offsets
   a->acceleration.x -= OFFSET_A_X;
   a->acceleration.y -= OFFSET_A_Y;
   a->acceleration.z -= OFFSET_A_Z;
