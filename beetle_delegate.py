@@ -216,6 +216,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         accX, accY, accZ, gyrX, gyrY, gyrZ = unpacked_data
         imu_data = {
             "id": self.beetle_id,
+            "type": IMU_DATA_PKT,
             "accX": accX,
             "accY": accY,
             "accZ": accZ,
@@ -293,6 +294,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.data_queue.put(
                 {
                     "id": self.beetle_id,
+                    "type": GUN_PKT,
                     "shotID": shotID,
                     "successfulShots": self.successful_shots,
                 }

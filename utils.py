@@ -20,8 +20,8 @@ def dataConsumer(config, data_queue):
     Consumer function to process data from the queue and write it to CSV files.
 
     This function reads data from the queue and writes it to separate CSV files
-    based on the Beetle ID. It creates a new CSV file for each Beetle ID and
-    appends the data to the file as it arrives.
+    based on the Beetle ID and packet type. It creates a new CSV file and appends
+    the data to the file as it arrives.
 
     Args:
     config (dict): The configuration dictionary loaded from the config.yaml file.
@@ -38,16 +38,16 @@ def dataConsumer(config, data_queue):
     while True:
         try:
             data = data_queue.get(timeout=1)
-            id = data["id"]
+            id_and_type = f"{data["id"]}_{data["type"]}"
 
-            if id not in csv_files:
-                filename = os.path.join(data_path, f"{id}_data.csv")
-                csv_files[id] = open(filename, "w", newline="")
-                csv_writers[id] = csv.DictWriter(csv_files[id], fieldnames=data.keys())
-                csv_writers[id].writeheader()
+            if id_and_type not in csv_files:
+                filename = os.path.join(data_path, f"{id_and_type}_data.csv")
+                csv_files[id_and_type] = open(filename, "w", newline="")
+                csv_writers[id_and_type] = csv.DictWriter(csv_files[id_and_type], fieldnames=data.keys())
+                csv_writers[id_and_type].writeheader()
 
-            csv_writers[id].writerow(data)
-            csv_files[id].flush()
+            csv_writers[id_and_type].writerow(data)
+            csv_files[id_and_type].flush()
 
         except Exception as e:
             # print(f"Filewrite error - no data in queue.")

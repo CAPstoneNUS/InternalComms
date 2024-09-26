@@ -136,7 +136,7 @@ void loop() {
     unsigned long currMillis = millis();
 
     // Read the button state and trigger the laser
-    // readButton(currMillis);
+    readButton(currMillis);
 
     // Check if 100 ms has passed since the last time sendIMUData() was called
     if (currMillis - previousIMUMillis >= IMUInterval) {
