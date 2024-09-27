@@ -22,6 +22,7 @@ def main():
     beetle_macs = [
         config["device"]["beetle_1"],
         config["device"]["beetle_2"],
+        config["device"]["beetle_3"],
     ]
 
     data_queue = queue.Queue()
