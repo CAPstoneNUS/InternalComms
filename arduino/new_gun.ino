@@ -269,14 +269,14 @@ void reloadMag() {
 }
 
 void updateLED(int shotsInMag) {
+  pixels.setPixelColor(shotsInMag, pixels.Color(0, 0, 0));
+  pixels.show();
+
   if (shotsInMag <= 0) {
     delay(1000);
     reloadMag();
     return;
   }
-
-  pixels.setPixelColor(shotsInMag, pixels.Color(0, 0, 0));
-  pixels.show();
 }
 
 
