@@ -1,8 +1,12 @@
 myenv/
 data/
 logs/
+viz/
 
 *.csv
 *.yaml
 
 __pycache__/
+
+balance_entries.py
+visualize_data.py
