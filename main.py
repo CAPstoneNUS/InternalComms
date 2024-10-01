@@ -1,5 +1,6 @@
 import queue
 import threading
+from game_state import GameState
 from beetle_connection import BeetleConnection
 from utils import loadConfig, dataConsumer, setupLogger
 
@@ -25,12 +26,13 @@ def main():
         config["device"]["beetle_3"],
     ]
 
-    data_queue = queue.Queue()
     beetle_threads = []
+    game_state = GameState()
+    data_queue = queue.Queue()
 
     for mac in beetle_macs:
         logger = setupLogger(config, mac)
-        beetle = BeetleConnection(config, logger, mac, data_queue)
+        beetle = BeetleConnection(config, logger, mac, data_queue, game_state)
         thread = threading.Thread(target=beetle.startComms)
         beetle_threads.append(thread)
         thread.start()
