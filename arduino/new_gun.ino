@@ -9,6 +9,7 @@
 
 #define SYN_PACKET 'S'
 #define ACK_PACKET 'A'  // For handshaking
+#define NAK_PACKET 'L'
 #define IMU_PACKET 'M'
 #define GUN_PACKET 'G'
 #define RELOAD_PACKET 'R'
@@ -20,7 +21,7 @@ Adafruit_MPU6050 mpu;
 
 uint8_t currShot = 1;
 const uint8_t magSize = 6;
-uint8_t shotsInMag = magSize;
+uint8_t remainingBullets = magSize;
 std::set<uint8_t> unacknowledgedShots;
 bool hasHandshake = false;
 bool reloadInProgress = false;
@@ -49,21 +50,29 @@ bool buttonPressed = false;  // To track if the button was pressed
 struct Packet {
   char packetType;
   uint8_t shotID;
-  byte padding[17];
+  uint8_t remainingBullets;
+  byte padding[16];
   uint8_t crc;
 };
 
-void sendPacket(char packetType, uint8_t shotID = 0) {
+Packet lastPacket;
+
+void sendPacket(char packetType, uint8_t shotID = 0, uint8_t remainingBullets = 0) {
+  // Prepare packet
   Packet packet;
   packet.packetType = packetType;
   packet.shotID = shotID;
+  packet.remainingBullets = remainingBullets;
   memset(packet.padding, 0, sizeof(packet.padding));
-
   crc8.restart();
   crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
   packet.crc = (uint8_t)crc8.calc();
 
+  // Send packet
   Serial.write((byte *)&packet, sizeof(packet));
+
+  // Store packet
+  lastPacket = packet;
 }
 
 void handlePacket(Packet &packet) {
@@ -74,34 +83,35 @@ void handlePacket(Packet &packet) {
     case ACK_PACKET:
       hasHandshake = true;
       break;
+    case NAK_PACKET:
+      Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
+      break;
     case GUN_ACK_PACKET:
       unacknowledgedShots.erase(packet.shotID);
-      sendPacket(GUN_ACK_PACKET, packet.shotID);
+      sendPacket(GUN_ACK_PACKET, packet.shotID, remainingBullets);
       break;
-      // case RELOAD_PACKET: // recvs reload packet from laptop
-      //   sendPacket(RELOAD_ACK_PACKET);
-      //   reloadInProgress = true;
-      //   reloadStartTime = millis();
-      //   break;
-      // case RELOAD_ACK_PACKET:
-      //   if (!unacknowledgedShots.empty()) {
-      //     for (const auto& shot : unacknowledgedShots) {
-      //       sendPacket(GUN_PACKET, shot);
-      //     }
-      //   }
-      //   unacknowledgedShots.clear();
-      //   currShot = 1;
-      //   shotsInMag = magSize;
-      //   reloadInProgress = false;
-      //   reloadStartTime = 0;
-      //   break;
+      case RELOAD_PACKET: // recvs reload packet from laptop
+        sendPacket(RELOAD_ACK_PACKET);
+        reloadInProgress = true;
+        reloadStartTime = millis();
+        break;
+      case RELOAD_ACK_PACKET:
+        if (!unacknowledgedShots.empty()) {
+          for (const auto& shot : unacknowledgedShots) {
+            sendPacket(GUN_PACKET, shot);
+          }
+        }
+        unacknowledgedShots.clear();
+        reloadMag();
+        reloadInProgress = false;
+        reloadStartTime = 0;
+        break;
   }
 }
 
 
 void setup() {
   Serial.begin(115200);
-  // Serial.println("Adafruit MPU6050 test!");
   // pinMode(BUTTON, INPUT);
   // pinMode(LASER, OUTPUT);
   IrSender.begin(IR_PIN);
@@ -111,9 +121,8 @@ void setup() {
 }
 
 int buttonState = 0;
-
 unsigned long previousIMUMillis = 0;    // Variable to store the last time sendIMUData() was executed
-const unsigned long IMUInterval = 100;  // Interval in milliseconds (100 ms)
+const unsigned long IMUInterval = 50;  // Interval in milliseconds (50 ms)
 
 
 void loop() {
@@ -132,10 +141,7 @@ void loop() {
   }
 
   if (hasHandshake) {
-    // Use same curr time in each loop
     unsigned long currMillis = millis();
-
-    // Read the button state and trigger the laser
     readButton(currMillis);
 
     // Check if 100 ms has passed since the last time sendIMUData() was called
@@ -147,7 +153,7 @@ void loop() {
     // Handle resending of unacknowledged shots
     if (!unacknowledgedShots.empty() && currMillis - lastGunShotTime >= responseTimeout) {
       uint8_t shotToResend = *unacknowledgedShots.begin();
-      sendPacket(GUN_PACKET, shotToResend);
+      sendPacket(GUN_PACKET, shotToResend, remainingBullets);
       lastGunShotTime = currMillis;
     }
   }
@@ -174,14 +180,14 @@ void readButton(unsigned long currMillis) {
 
       // Button press detected (low to high transition)
       if (buttonState == HIGH) {
-        if (shotsInMag > 0) {
+        if (remainingBullets > 0) {
           IrSender.sendNEC(RED_ENCODING_VALUE, 32);
-          sendPacket(GUN_PACKET, currShot);
+          remainingBullets--;
+          sendPacket(GUN_PACKET, currShot, remainingBullets);
           unacknowledgedShots.insert(currShot);
           lastGunShotTime = currMillis;
-          shotsInMag--;
           currShot++;
-          updateLED(shotsInMag);  // updates led strip and reloads mag if empty
+          updateLED(remainingBullets);  // updates led strip and reloads mag if empty
         }
       }
     }
@@ -235,54 +241,26 @@ void sendIMUData() {
   imuPacket.crc = (uint8_t)crc8.calc();
 
   Serial.write((byte *)&imuPacket, sizeof(imuPacket));
-
-  //   /* Print out the values */
-  //   Serial.print("Acceleration X: ");
-  //   Serial.print(a.acceleration.x);
-  //   Serial.print(", Y: ");
-  //   Serial.print(a.acceleration.y);
-  //   Serial.print(", Z: ");
-  //   Serial.print(a.acceleration.z);
-  //   Serial.println(" m/s^2");
-
-  //   Serial.print("Rotation X: ");
-  //   Serial.print(g.gyro.x);
-  //   Serial.print(", Y: ");
-  //   Serial.print(g.gyro.y);
-  //   Serial.print(", Z: ");
-  //   Serial.print(g.gyro.z);
-  //   Serial.println(" rad/s");
-
-  //   Serial.print("Temperature: ");
-  //   Serial.print(temp.temperature);
-  //   Serial.println(" degC");
-
-  //   Serial.println("");
 }
 
 void reloadMag() {
-  shotsInMag = magSize;
-  for (int i = 0; i < shotsInMag; i++) {
+  currShot = 1;
+  remainingBullets = magSize;
+  for (int i = 0; i < remainingBullets; i++) {
     pixels.setPixelColor(i, pixels.Color(0, 1, 0));
   }
   pixels.show();
 }
 
-void updateLED(int shotsInMag) {
-  pixels.setPixelColor(shotsInMag, pixels.Color(0, 0, 0));
+void updateLED(int remainingBullets) {
+  pixels.setPixelColor(remainingBullets, pixels.Color(0, 0, 0));
   pixels.show();
-
-  if (shotsInMag <= 0) {
-    delay(1000);
-    reloadMag();
-    return;
-  }
 }
 
 
-#define OFFSET_A_X -0.47
-#define OFFSET_A_Y -0.28
-#define OFFSET_A_Z 8.34
+#define OFFSET_A_X -9.15
+#define OFFSET_A_Y -0.55
+#define OFFSET_A_Z -2.50
 
 #define OFFSET_G_X -0.11
 #define OFFSET_G_Y 0.03

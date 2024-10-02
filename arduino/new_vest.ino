@@ -6,10 +6,11 @@
 
 #define SYN_PACKET 'S'
 #define ACK_PACKET 'A'
+#define NAK_PACKET 'L'
 #define BOMB_PACKET 'B'
 #define BOMB_ACK_PACKET 'C'
-#define ACTION_PACKET 'W'
-#define ACTION_ACK_PACKET 'E'
+#define ATTACK_PACKET 'K'
+#define ATTACK_ACK_PACKET 'E'
 #define SHIELD_PACKET 'P'
 #define SHIELD_ACK_PACKET 'Q'
 #define VESTSHOT_PACKET 'V'
@@ -28,22 +29,16 @@
 #define NUMPIXELS 10
 #define RECV_PIN 2
 
-
-/*
- * This include defines the actual pin number for pins like IR_RECEIVE_PIN, IR_SEND_PIN for many different boards and architectures
- */
-
-
 Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 CRC8 crc8;
 
 uint8_t shield = 0;
 uint8_t health = MAX_HEALTH;
-uint8_t deaths = 0;
+
 bool hasHandshake = false;
 int RED_ENCODING_VALUE = 0xFF6897;
-int ACTION_ENCODING_VALUE = 0xFF9867; //TOD
+int ATTACK_ENCODING_VALUE = 0xFF9867; //TOD
 
 struct PacketTimeout {
   char packetType;
@@ -53,7 +48,7 @@ struct PacketTimeout {
 
 PacketTimeout timeouts[] = {
   {BOMB_PACKET, 0, false},
-  {ACTION_PACKET, 0, false},
+  {ATTACK_PACKET, 0, false},
   {SHIELD_PACKET, 0, false},
   {VESTSHOT_PACKET, 0, false}
 };
@@ -62,41 +57,40 @@ struct Packet {
   char packetType;
   uint8_t shield;
   uint8_t health;
-  uint8_t deaths;
-  byte padding[15];
+  byte padding[16];
   uint8_t crc;
 };
 
+Packet lastPacket;
 
-void applyDamage(uint8_t damage) {
-  if (shield > 0) {
-    if (shield >= damage) {
-      shield -= damage;
-    } else {
-      damage -= shield;
-      shield = 0;
-      health = (health > damage) ? health - damage : 0;
-    }
-  } else {
-    health = (health > damage) ? health - damage : 0;
-  }
+struct PendingState {
+  uint8_t shield;
+  uint8_t health;
+  bool isPending;
+} pendingState;
+
+void initializePendingState() {
+  pendingState.shield = shield;
+  pendingState.health = health;
+  pendingState.isPending = false;
 }
 
 void sendPacket(char packetType) {
   // Prepare packet
   Packet packet;
   packet.packetType = packetType;
-  packet.health = health;
-  packet.shield = shield;
-  packet.deaths = deaths;
+  packet.shield = pendingState.isPending ? pendingState.shield : shield;
+  packet.health = pendingState.isPending ? pendingState.health : health;
   memset(packet.padding, 0, sizeof(packet.padding));
-
   crc8.restart();
   crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
   packet.crc = (uint8_t)crc8.calc();
 
   // Send packet
   Serial.write((byte *)&packet, sizeof(packet));
+
+  // Store last packet
+  lastPacket = packet;
 
   // Set timeout for the sent packet
   for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
@@ -108,6 +102,30 @@ void sendPacket(char packetType) {
   }
 }
 
+void applyPendingState() {
+  if (pendingState.isPending) {
+    shield = pendingState.shield;
+    health = pendingState.health;
+    pendingState.isPending = false;
+    updateLED();
+  }
+}
+
+void applyDamageToPendingState(uint8_t damage) {
+  if (pendingState.shield >= damage) {
+    pendingState.shield -= damage;
+  } else {
+    uint8_t remainingDamage = damage - pendingState.shield;
+    pendingState.shield = 0;
+    if (pendingState.health > remainingDamage) {
+      pendingState.health -= remainingDamage;
+    } else {
+      pendingState.health = 0;
+    }
+  }
+  pendingState.isPending = true;
+}
+
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case SYN_PACKET:
@@ -116,48 +134,49 @@ void handlePacket(Packet &packet) {
     case ACK_PACKET:
       hasHandshake = true;
       break;
+    case NAK_PACKET:
+      Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
+      break;
     case BOMB_PACKET:
-      applyDamage(5);
+      applyDamageToPendingState(5);
       sendPacket(BOMB_ACK_PACKET);
       break;
     case BOMB_ACK_PACKET:
+      applyPendingState();
       timeouts[0].waiting = false;
       break;
-    case ACTION_PACKET:
-      applyDamage(10);
-      sendPacket(ACTION_ACK_PACKET);
+    case ATTACK_PACKET:
+      applyDamageToPendingState(10);
+      sendPacket(ATTACK_ACK_PACKET);
       break;
-    case ACTION_ACK_PACKET:
+    case ATTACK_ACK_PACKET:
+      applyPendingState();
       timeouts[1].waiting = false;
       break;
     case SHIELD_PACKET:
-      shield = 30; // set to 30 on cast, cannot stack
+      pendingState.shield = MAX_SHIELD; // set to 30 on cast, cannot stack
+      pendingState.isPending = true;
       sendPacket(SHIELD_ACK_PACKET);
       break;
     case SHIELD_ACK_PACKET:
+      applyPendingState();
       timeouts[2].waiting = false;
       break;
     case VESTSHOT_ACK_PACKET:
+      applyPendingState();
       timeouts[3].waiting = false;
+      sendPacket(VESTSHOT_ACK_PACKET);
       break;
   }
-}
-
-void updateGameState(Packet &packet) {
-  health = packet.health;
-  shield = packet.shield;
-  deaths = packet.deaths;
 }
 
 void setup() {
     Serial.begin(115200);
     // while (!Serial); // Wait for Serial to become available. Is optimized away for some cores.
-
     // Just to know which program is running on my Arduino
     // Serial.println(F("START " __FILE__ " from " __DATE__ "\r\nUsing library version " VERSION_IRREMOTE));
-
     IrReceiver.begin(RECV_PIN, ENABLE_LED_FEEDBACK);
-
+    initializePendingState();
     // Start the receiver and if not 3. parameter specified, take LED_BUILTIN pin from the internal boards definition as default feedback LED
     pixels.begin();
     
@@ -176,18 +195,16 @@ void loop(){
 
     if (calculatedCRC == receivedPacket.crc) {
       handlePacket(receivedPacket);
-      if (hasHandshake) {
-        updateGameState(receivedPacket);
-      }
+    } else {
+      sendPacket(NAK_PACKET);
     }
   }
 
   if (hasHandshake) {
     // Gun Beetle --> Vest Beetle
     if (IrReceiver.decode() && IrReceiver.decodedIRData.command == 0x16) {
-      applyDamage(5); // global health and shield update
-      updateLED(); // LED health strip update
-      sendPacket(VESTSHOT_PACKET); // send packet to vest
+      applyDamageToPendingState(5);
+      sendPacket(VESTSHOT_PACKET);
       IrReceiver.resume();
     }
 
@@ -200,10 +217,8 @@ void loop(){
   }
 }
 
-
 void updateLED(){
   if (health <= 0){
-    deaths++;
     health = 100;
   }
   int full_leds = health / 10; // Number of fully lit LEDs (each represents 10 HP)
@@ -211,9 +226,7 @@ void updateLED(){
 
   // Turn on the appropriate number of LEDs
   for (int i = 0; i < NUMPIXELS; i++) {
-    // Serial.println(i);
     if (i < full_leds) {
-      // Serial.println(i);
       // Fully lit LED (Green color: RGB -> 0, 5, 0 for dimmed green)
       pixels.setPixelColor(i, pixels.Color(0, 5, 0));
 
