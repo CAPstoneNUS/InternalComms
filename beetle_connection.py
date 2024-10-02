@@ -8,6 +8,10 @@ from utils import getCRC
 
 HS_SYN_PKT = "S"
 HS_ACK_PKT = "A"
+ATTACK_PKT = "K"
+BOMB_PKT = "B"
+SHIELD_PKT = "P"
+RELOAD_PKT = "R"
 
 
 class BeetleState(Enum):
@@ -39,19 +43,15 @@ class BeetleConnection:
         CHARACTERISTIC_UUID (str): UUID of the Bluetooth characteristic.
         HANDSHAKE_INTERVAL (float): Time interval for handshake attempts.
         RECONNECTION_INTERVAL (int): Time interval for reconnection attempts.
-        MIN_RELOAD_INTERVAL (int): Minimum time interval between reload requests.
-        MAX_RELOAD_INTERVAL (int): Maximum time interval between reload requests.
 
-        _reload_in_progress (bool): Flag to indicate if a reload request is in progress.
-        last_reload_time (float): Time of the last reload request.
-        reload_interval (float): Time interval between reload requests.
     """
 
-    def __init__(self, config, logger, mac_address, data_queue):
+    def __init__(self, config, logger, mac_address, data_queue, game_state):
         self.config = config
         self.logger = logger
         self.mac_address = mac_address
         self.data_queue = data_queue
+        self.game_state = game_state
         self.beetle = None
         self.beetle_delegate = None
         self.beetle_state = BeetleState.DISCONNECTED
@@ -62,15 +62,7 @@ class BeetleConnection:
         self.CHARACTERISTIC_UUID = config["uuid"]["characteristic"]
         self.HANDSHAKE_INTERVAL = config["time"]["handshake_interval"]
         self.RECONNECTION_INTERVAL = config["time"]["reconnection_interval"]
-        self.MIN_RELOAD_INTERVAL = config["time"]["min_reload_interval"]
-        self.MAX_RELOAD_INTERVAL = config["time"]["max_reload_interval"]
-
-        # For random reload request
-        self._reload_in_progress = False
-        self.last_reload_time = time.time()
-        self.reload_interval = random.uniform(
-            self.MIN_RELOAD_INTERVAL, self.MAX_RELOAD_INTERVAL
-        )
+        self.MAX_NOTIF_WAIT_TIME = config["time"]["max_notif_wait_time"]
 
     def startComms(self):
         """
@@ -103,22 +95,11 @@ class BeetleConnection:
 
                 # Step 3: Wait for notifications
                 if self.beetle_state == BeetleState.READY:
-                    if not self.beetle.waitForNotifications(20):
+                    if not self.beetle.waitForNotifications(self.MAX_NOTIF_WAIT_TIME):
                         self.logger.error(
                             f"Failed to receive notifications. Disconnecting..."
                         )
                         self.forceDisconnect()
-
-                    # Simulate reload request
-                    current_time = time.time()
-                    if (
-                        current_time - self.last_reload_time >= self.reload_interval
-                    ) and (self.mac_address == self.config["device"]["beetle_1"]):
-                        # self.sendReload()
-                        self.last_reload_time = current_time
-                        self.reload_interval = random.uniform(
-                            self.MIN_RELOAD_INTERVAL, self.MAX_RELOAD_INTERVAL
-                        )
 
             except btle.BTLEDisconnectError:
                 self.logger.error(
@@ -152,7 +133,12 @@ class BeetleConnection:
                 self.CHARACTERISTIC_UUID
             )[0]
             self.beetle_delegate = BeetleDelegate(
-                self, self.config, self.logger, self.mac_address, self.data_queue
+                self,
+                self.config,
+                self.logger,
+                self.mac_address,
+                self.data_queue,
+                self.game_state,
             )
             self.beetle.withDelegate(self.beetle_delegate)
             return True
@@ -187,32 +173,6 @@ class BeetleConnection:
         except btle.BTLEDisconnectError:
             self.logger.error(f"Disconnected during handshake.")
             return False
-
-    def sendReload(self):
-        """
-        Sends a reload signal to the Beetle.
-
-        This method is used to initiate a reload operation on the Beetle.
-        """
-        if not self._reload_in_progress:
-            self._reload_in_progress = True
-            self.logger.info("<< Relaying RELOAD signal from above...")
-            reload_packet = struct.pack("<b18x", ord("R"))
-            crc = getCRC(reload_packet)
-            reload_packet += struct.pack("B", crc)
-            self.serial_characteristic.write(reload_packet)
-            if not self.beetle.waitForNotifications(1.0):
-                self.handleReloadTimeout()
-
-    def handleReloadTimeout(self):
-        """
-        Handles the case when a reload operation times out.
-
-        Attempts to resend the reload signal if a timeout occurs.
-        """
-        if self._reload_in_progress:
-            self.logger.warning("Reload timeout. Resending RELOAD signal.")
-            self.sendReload()
 
     def forceDisconnect(self):
         """
@@ -258,11 +218,3 @@ class BeetleConnection:
     @ack_flag.setter
     def ack_flag(self, value):
         self._ack_flag = value
-
-    @property
-    def reload_in_progress(self):
-        return self._reload_in_progress
-
-    @reload_in_progress.setter
-    def reload_in_progress(self, value):
-        self._reload_in_progress = value
