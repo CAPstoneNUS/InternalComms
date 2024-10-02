@@ -2,11 +2,9 @@ myenv/
 data/
 logs/
 viz/
+notebooks/
 
 *.csv
 *.yaml
 
 __pycache__/
-
-balance_entries.py
-visualize_data.py
