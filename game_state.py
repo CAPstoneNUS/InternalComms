@@ -120,13 +120,16 @@ class GameState:
         return self.gun_state.applyState(**kwargs)
 
     def applyDamage(self, damage):
+        print(f"-{damage} damage")
         self.vest_state.applyDamage(damage)
 
     def useBullet(self):
         return self.gun_state.useBullet()
 
     def reload(self):
+        print("Mag empty. Reloading...")
         self.gun_state.reload()
 
     def refreshShield(self):
+        print(f"+30 shield")
         self.vest_state.refreshShield()
