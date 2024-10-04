@@ -20,6 +20,7 @@ CRC8 crc8;
 Adafruit_MPU6050 mpu;
 
 uint8_t currShot = 1;
+uint8_t pendingCurrShot = 1;
 const uint8_t magSize = 6;
 uint8_t remainingBullets = magSize;
 std::set<uint8_t> unacknowledgedShots;
@@ -61,7 +62,7 @@ void sendPacket(char packetType, uint8_t shotID = 0, uint8_t remainingBullets = 
   // Prepare packet
   Packet packet;
   packet.packetType = packetType;
-  packet.shotID = shotID;
+  packet.shotID = shotID; // doubles as a currShot sync variable for reconnections
   packet.remainingBullets = remainingBullets;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
@@ -78,9 +79,12 @@ void sendPacket(char packetType, uint8_t shotID = 0, uint8_t remainingBullets = 
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case SYN_PACKET:
+      // sync game state upon reconnection
+      pendingCurrShot = packet.shotID;
       sendPacket(ACK_PACKET);
       break;
     case ACK_PACKET:
+      currShot = pendingCurrShot; // apply pending state
       hasHandshake = true;
       break;
     case NAK_PACKET:

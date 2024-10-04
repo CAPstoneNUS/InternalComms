@@ -129,9 +129,14 @@ void applyDamageToPendingState(uint8_t damage) {
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case SYN_PACKET:
+      // sync game state upon reconnection
+      pendingState.shield = packet.shield;
+      pendingState.health = packet.health;
+      pendingState.isPending = true;
       sendPacket(ACK_PACKET);
       break;
     case ACK_PACKET:
+      applyPendingState();
       hasHandshake = true;
       break;
     case NAK_PACKET:
