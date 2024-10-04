@@ -6,5 +6,6 @@ notebooks/
 
 *.csv
 *.yaml
+*_test.py
 
 __pycache__/
