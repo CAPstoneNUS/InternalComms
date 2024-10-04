@@ -52,17 +52,7 @@ def adjust_file_entries(file1, file2):
 # Directory containing the CSV files
 directory = os.path.join(os.path.dirname(__file__), "../data")
 
-# Get the highest number (ending with "_i") in the CSV filenames
-max_i = max(
-    [
-        int(f.split("_")[-1].split(".")[0])
-        for f in os.listdir(directory)
-        if f.endswith(".csv")
-    ]
-)
-
-# Loop through the numbers 1 to 10
-for i in range(1, max_i + 1):
+for i in range(1, 11):
     try:
         # Get the CSV files for the current i
         csv_files = get_csv_files_with_i(directory, i)
