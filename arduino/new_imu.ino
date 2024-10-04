@@ -16,7 +16,7 @@ Adafruit_MPU6050 mpu;
 
 bool hasHandshake = false;
 unsigned long previousIMUMillis = 0;    // Variable to store the last time readIMU() was executed
-const unsigned long IMUinterval = 100;  // Interval in milliseconds (100 ms)
+const unsigned long IMUinterval = 50;  // Interval in milliseconds (100 ms)
 
 struct ACKPacket {
   char packetType;
@@ -115,15 +115,13 @@ void mpu_setup() {
   // Serial.println("MPU6050 Found!");
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
-  Serial.println("");
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   delay(100);
 }
 
-
-#define OFFSET_A_X -0.27
-#define OFFSET_A_Y -0.38
-#define OFFSET_A_Z 9.86
+#define OFFSET_A_X 9.88
+#define OFFSET_A_Y -1.71
+#define OFFSET_A_Z -2.83
 
 #define OFFSET_G_X -0.04
 #define OFFSET_G_Y -0.03
