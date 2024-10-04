@@ -205,7 +205,7 @@ void mpuSetup() {
   }
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   delay(100);
 }
 
@@ -258,9 +258,9 @@ void updateLED(int remainingBullets) {
 }
 
 
-#define OFFSET_A_X -9.15
-#define OFFSET_A_Y -0.55
-#define OFFSET_A_Z -2.50
+#define OFFSET_A_X -9.05
+#define OFFSET_A_Y 1.47
+#define OFFSET_A_Z -1.17
 
 #define OFFSET_G_X -0.11
 #define OFFSET_G_Y 0.03
