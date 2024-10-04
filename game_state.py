@@ -131,5 +131,13 @@ class GameState:
         self.gun_state.reload()
 
     def refreshShield(self):
-        print(f"+30 shield")
+        print("+30 shield")
         self.vest_state.refreshShield()
+
+    def getCurrShot(self):
+        shotsInMag = self.gun_state.getState()["bullets"]
+        return 7 - shotsInMag
+
+    def getShieldHealth(self):
+        state = self.vest_state.getState()
+        return state["shield"], state["health"]

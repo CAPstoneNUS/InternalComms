@@ -1,6 +1,7 @@
 import queue
 import threading
 from game_state import GameState
+from relay_client import RelayClient
 from beetle_connection import BeetleConnection
 from utils import loadConfig, dataConsumer, setupLogger
 
@@ -29,6 +30,9 @@ def main():
     beetle_threads = []
     game_state = GameState()
     data_queue = queue.Queue()
+    # relay_client = RelayClient(
+    # config["device"]["ultra_ip"], config["device"]["ultra_port"], config, data_queue
+    # )
 
     for mac in beetle_macs:
         logger = setupLogger(config, mac)
@@ -38,6 +42,7 @@ def main():
         thread.start()
 
     consumer_thread = threading.Thread(target=dataConsumer, args=(config, data_queue))
+    # consumer_thread = threading.Thread(target=relay_client.run)
     consumer_thread.start()
 
     for thread in beetle_threads:

@@ -188,7 +188,17 @@ class BeetleConnection:
         Sends a SYN packet to the Beetle as part of the handshake process.
         """
         self.logger.info(f"<< Sending SYN...")
-        syn_packet = struct.pack("b18s", ord(HS_SYN_PKT), bytes(18))
+
+        # Sync game state
+        if self.mac_address == self.config["device"]["beetle_1"]:  # gun
+            currShot = self.game_state.getCurrShot()
+            syn_packet = struct.pack("bB17s", ord(HS_SYN_PKT), currShot, bytes(17))
+        elif self.mac_address == self.config["device"]["beetle_3"]:  # vest
+            shield, health = self.game_state.getShieldHealth()
+            syn_packet = struct.pack(
+                "b2B16s", ord(HS_SYN_PKT), shield, health, bytes(16)
+            )
+
         crc = getCRC(syn_packet)
         syn_packet += struct.pack("B", crc)
         self.serial_characteristic.write(syn_packet)

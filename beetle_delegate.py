@@ -191,7 +191,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             elif packet_type == SHIELD_SYNACK_PKT:
                 self.handleShieldSYNACK(payload)
             else:
-                self.logger.error(f"Unknown packet type: {chr(packet_type)}")
+                self.logger.error(f"Unknown packet type: {packet_type}")
 
         # Check for fragmented packets
         if len(self.buffer) > 0:
@@ -279,7 +279,6 @@ class BeetleDelegate(btle.DefaultDelegate):
             return
 
         action = random.choice([ATTACK_PKT, BOMB_PKT, SHIELD_PKT])
-        self.simulateAction(action)
 
         if action == ATTACK_PKT:
             self.game_state.applyDamage(10)  # attacks do 10 damage
@@ -287,6 +286,9 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.game_state.applyDamage(5)  # bombs do 5 damage
         elif action == SHIELD_PKT:
             self.game_state.refreshShield()
+
+        self.logger.info(f"Simulating action: {action}")
+        self.simulateAction(action)
 
     def simulateAction(self, action):
         self._action_in_progress = True
@@ -493,7 +495,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         # Random action simulation with probability 0.5
         if self.simulation_mode and random.random() <= 0.5:
-            self.logger.info("Simulating random action...")
             self.simulateRandomAction()
 
     def handleBombSYNACK(self, data):
