@@ -118,7 +118,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             cHandle (int): The characteristic handle from which the data was received.
             data (bytes): The data received from the Beetle
         """
-        # # Randomly corrupt data for testing
+        # Randomly corrupt data for testing
         # if random.random() <= 0.1:
         #     self.logger.warning(
         #         f"Corrupting packet {chr(struct.unpack('B', data[0:1])[0])}..."
@@ -285,7 +285,8 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.logger.warning("Gunshot in progress. Ignoring...")
             return
 
-        action = random.choice([ATTACK_PKT, BOMB_PKT, SHIELD_PKT])
+        # action = random.choice([ATTACK_PKT, BOMB_PKT, SHIELD_PKT])
+        action = ATTACK_PKT
 
         if action == ATTACK_PKT:
             self.game_state.applyDamage(10)  # attacks do 10 damage
@@ -518,14 +519,11 @@ class BeetleDelegate(btle.DefaultDelegate):
             Timer(self.RESEND_PKT_TIMEOUT, self.handleVestTimeout).start()
 
     def handleBombSYNACK(self, data):
-        if not self._vestshot_in_progress:
-            self.logger.info(">> Received BOMB SYN-ACK.")
-            shield, health = struct.unpack("<2B16x", data)
-            self.game_state.applyVestState(shield=shield, health=health)
-            self._action_in_progress = False
-            self.sendBombACK()
-        else:
-            self.logger.warning(">> Received BOMB SYN-ACK while vest shot in progress.")
+        self.logger.info(">> Received BOMB SYN-ACK.")
+        shield, health = struct.unpack("<2B16x", data)
+        self.game_state.applyVestState(shield=shield, health=health)
+        self._action_in_progress = False
+        self.sendBombACK()
 
     def sendBombACK(self):
         self.logger.info("<< Sending BOMB ACK...")
@@ -535,16 +533,11 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.beetle_connection.writeCharacteristic(ack_packet)
 
     def handleAttackSYNACK(self, data):
-        if not self._vestshot_in_progress:
-            self.logger.info(">> Received ATTACK SYN-ACK.")
-            shield, health = struct.unpack("<2B16x", data)
-            self.game_state.applyVestState(shield=shield, health=health)
-            self._action_in_progress = False
-            self.sendAttackACK()
-        else:
-            self.logger.warning(
-                ">> Received ATTACK SYN-ACK while vest shot in progress."
-            )
+        self.logger.info(">> Received ATTACK SYN-ACK.")
+        shield, health = struct.unpack("<2B16x", data)
+        self.game_state.applyVestState(shield=shield, health=health)
+        self._action_in_progress = False
+        self.sendAttackACK()
 
     def sendAttackACK(self):
         self.logger.info("<< Sending ATTACK ACK...")
@@ -554,16 +547,11 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.beetle_connection.writeCharacteristic(ack_packet)
 
     def handleShieldSYNACK(self, data):
-        if not self._vestshot_in_progress:
-            self.logger.info(">> Received SHIELD SYN-ACK.")
-            shield, health = struct.unpack("<2B16x", data)
-            self.game_state.applyVestState(shield=shield, health=health)
-            self._action_in_progress = False
-            self.sendShieldACK()
-        else:
-            self.logger.warning(
-                ">> Received SHIELD SYN-ACK while vest shot in progress."
-            )
+        self.logger.info(">> Received SHIELD SYN-ACK.")
+        shield, health = struct.unpack("<2B16x", data)
+        self.game_state.applyVestState(shield=shield, health=health)
+        self._action_in_progress = False
+        self.sendShieldACK()
 
     def sendShieldACK(self):
         self.logger.info("<< Sending SHIELD ACK...")
