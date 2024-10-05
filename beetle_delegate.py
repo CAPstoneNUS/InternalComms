@@ -73,6 +73,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.data_queue = data_queue
         self.game_state = game_state
         self.buffer = deque()
+        self._last_packet = None
 
         # Transmission speed stats
         self.start_time = time.time()
@@ -190,6 +191,8 @@ class BeetleDelegate(btle.DefaultDelegate):
                 self.handleAttackSYNACK(payload)
             elif packet_type == SHIELD_SYNACK_PKT:
                 self.handleShieldSYNACK(payload)
+            elif packet_type == NAK_PKT:
+                self.sendLastPacket()
             else:
                 self.logger.error(f"Unknown packet type: {packet_type}")
 
@@ -219,6 +222,10 @@ class BeetleDelegate(btle.DefaultDelegate):
         #     )
         #     self.start_time = time.time()
         #     self.total_window_data = 0
+
+    def sendLastPacket(self):
+        self.logger.info("<< Sending last packet...")
+        self.beetle_connection.writeCharacteristic(self.last_packet)
 
     def sendNAKPacket(self):
         """
@@ -588,3 +595,11 @@ class BeetleDelegate(btle.DefaultDelegate):
     @action_in_progress.setter
     def action_in_progress(self, value):
         self._action_in_progress = value
+
+    @property
+    def last_packet(self):
+        return self._last_packet
+
+    @last_packet.setter
+    def last_packet(self, value):
+        self._last_packet = value

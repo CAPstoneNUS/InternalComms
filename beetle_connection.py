@@ -214,8 +214,9 @@ class BeetleConnection:
             ack_packet += struct.pack("B", crc)
             self.serial_characteristic.write(ack_packet)
 
-    def writeCharacteristic(self, data):
-        self.serial_characteristic.write(data)
+    def writeCharacteristic(self, packet):
+        self.beetle_delegate.last_packet = packet
+        self.serial_characteristic.write(packet)
 
     @property
     def syn_flag(self):
