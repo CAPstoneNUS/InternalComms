@@ -296,16 +296,18 @@ class BeetleDelegate(btle.DefaultDelegate):
         crc = getCRC(action_packet)
         action_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(action_packet)
-        # Timer(self.RESEND_PKT_TIMEOUT, self.handleActionSimulationTimeout).start()
+        Timer(self.RESEND_PKT_TIMEOUT, self.handleActionTimeout, args=[action]).start()
 
-    def handleActionSimulationTimeout(self):
+    def handleActionTimeout(self, action):
         """
-        Resends the RELOAD packet if no SYN-ACK is received within the timeout duration.
+        Resends the ACTION (specific) packet if no SYN-ACK is received within the timeout duration.
         """
         if self._action_in_progress:  ### MIGHT CAUSE BUG FROM OTHER RANDOM ACTIONS ###
-            self.logger.warning("Timeout for RELOAD. Resending RELOAD...")
+            self.logger.warning(f"Timeout for ACTION. Resending {action}...")
             self.simulateAction(RELOAD_PKT)
-            Timer(self.RESEND_PKT_TIMEOUT, self.handleActionSimulationTimeout).start()
+            Timer(
+                self.RESEND_PKT_TIMEOUT, self.handleActionTimeout, args=[action]
+            ).start()
 
     def handleGunPacket(self, data):
         """
@@ -479,6 +481,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         shield, health = struct.unpack("<2B16x", data)
         self.game_state.updateVestState(shield=shield, health=health)
         self.sendVestSYNACK()
+        Timer(self.RESEND_PKT_TIMEOUT, self.handleVestTimeout).start()
 
     def sendVestSYNACK(self):
         self.logger.info("<< Sending VESTSHOT SYN-ACK...")
@@ -489,13 +492,22 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleVestACK(self, data):
         self.logger.info(">> Received VESTSHOT ACK.")
-        self._vestshot_in_progress = False
+        self._vestshot_in_progress = False  # flag to prevent timeout trigger
         shield, health = struct.unpack("<2B16x", data)
         self.game_state.applyVestState(shield=shield, health=health)
 
         # Random action simulation with probability 0.5
         if self.simulation_mode and random.random() <= 0.5:
             self.simulateRandomAction()
+
+    def handleVestTimeout(self):
+        """
+        Resends the VESTSHOT SYN-ACK packet if no ACK is received within the timeout duration.
+        """
+        if self._vestshot_in_progress:
+            self.logger.info(">> VESTSHOT timeout. Resending VESTSHOT SYN-ACK...")
+            self.sendVestSYNACK()
+            Timer(self.RESEND_PKT_TIMEOUT, self.handleVestTimeout).start()
 
     def handleBombSYNACK(self, data):
         if not self._vestshot_in_progress:
@@ -551,9 +563,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(ack_packet)
-
-    def handleBombTimeout(self):
-        pass
 
     @property
     def gunshot_in_progress(self):
