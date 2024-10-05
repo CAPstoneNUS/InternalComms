@@ -302,7 +302,8 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         Resends the ACTION (specific) packet if no SYN-ACK is received within the timeout duration.
         """
-        if self._action_in_progress:  ### MIGHT CAUSE BUG FROM OTHER RANDOM ACTIONS ###
+        # FIXME: This might cause a bug if another random action is triggered while this is waiting
+        if self._action_in_progress:
             self.logger.warning(f"Timeout for ACTION. Resending {action}...")
             self.simulateAction(RELOAD_PKT)
             Timer(
@@ -316,7 +317,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             data (bytes): The gun shot packet.
         """
-        # Drop attempted shots during a reload
+        # FIXME: Drop attempted shots during a reload. May cause shotID mismatch since Arduino will increment
         if self._action_in_progress:
             self.logger.warning(
                 ">> Shot triggered while performing action. Dropping packet..."
