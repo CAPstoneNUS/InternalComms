@@ -120,7 +120,8 @@ void applyDamageToPendingState(uint8_t damage) {
     if (pendingState.health > remainingDamage) {
       pendingState.health -= remainingDamage;
     } else {
-      pendingState.health = 0;
+      pendingState.shield = 0;
+      pendingState.health = 100;
     }
   }
   pendingState.isPending = true;
@@ -223,9 +224,6 @@ void loop(){
 }
 
 void updateLED(){
-  if (health <= 0){
-    health = 100;
-  }
   int full_leds = health / 10; // Number of fully lit LEDs (each represents 10 HP)
   int remainder = health % 10; // Remainder HP (for partial brightness)
 

@@ -28,6 +28,13 @@ class VestState:
                 return False
 
             for key, value in kwargs.items():
+                # check if health is less than 0 and reset the vest state
+                if key == "health" and value <= 0:
+                    print("Player dead. Refreshing health...")
+                    self._pending_state = self._state.copy()
+                    self._pending_state["health"] = 100
+                    self._pending_state["shield"] = 0
+                    return False
                 if key not in self._pending_state or self._pending_state[key] != value:
                     print(
                         f"Invalid state: {key}={value}, expected {key}={self._pending_state[key]}"
@@ -47,9 +54,12 @@ class VestState:
             else:
                 remaining_damage = damage - self._pending_state["shield"]
                 self._pending_state["shield"] = 0
-                self._pending_state["health"] = max(
-                    0, self._pending_state["health"] - remaining_damage
-                )
+                new_health = self._pending_state["health"] - remaining_damage
+                if new_health <= 0:
+                    self._pending_state["health"] = 100
+                    self._pending_state["shield"] = 0
+                else:
+                    self._pending_state["health"] = new_health
 
     def refreshShield(self):
         with self._lock:

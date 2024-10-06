@@ -152,7 +152,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             # Check CRC
             if calculated_crc != true_crc:
                 ### TODO figure out NAK later
-                self.logger.error("CRC mismatch. DROPPING packet...")
+                self.logger.error("CRC mismatch. Dropping packet...")
                 # self.logger.error("Packet corrupted. Requesting retransmission...")
                 # self.sendNAKPacket()
                 self.corrupt_packet_count += 1
