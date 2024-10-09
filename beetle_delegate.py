@@ -55,7 +55,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         MAX_BUFFER_SIZE (int): Maximum buffer size for storing incoming data.
         MAX_QUEUE_SIZE (int): Maximum queue size for storing IMU data.
-        MAX_CORRUPT_PKT_PCT (int): Maximum percentage of corrupt packets to tolerate before disconnecting.
         PACKET_SIZE (int): Size of each data packet.
         RESEND_PKT_TIMEOUT (int): Timeout duration for gun shot acknowledgements.
         STATS_LOG_INTERVAL (int): Interval for displaying transmission speed stats.
@@ -105,7 +104,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.MAG_SIZE = self.config["storage"]["mag_size"]
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
-        self.MAX_CORRUPT_PKT_PCT = self.config["storage"]["max_corrupt_pkt_pct"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
         self.RESEND_PKT_TIMEOUT = self.config["time"]["resend_pkt_timeout"]
         self.STATS_LOG_INTERVAL = config["time"]["stats_log_interval"]
@@ -157,10 +155,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                 # self.sendNAKPacket()
                 self.corrupt_packet_count += 1
                 self.total_corrupted_packets += 1
-                if (
-                    self.corrupt_packet_count
-                    >= self.MAX_CORRUPT_PKT_PCT * 0.01 * self.total_data
-                ):
+                if self.corrupt_packet_count >= 20:  # 1 second of corrupted packets
                     self.logger.error(
                         "Corrupt packet limit reached. Force disconnecting..."
                     )
@@ -254,11 +249,13 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             data (bytes): The IMU data packet.
         """
+        current_time = time.time()
         unpacked_data = struct.unpack("<6h6x", data)
         accX, accY, accZ, gyrX, gyrY, gyrZ = unpacked_data
         imu_data = {
             "id": self.beetle_id,
             "type": IMU_DATA_PKT,
+            "timestamp": current_time,
             "accX": accX,
             "accY": accY,
             "accZ": accZ,
