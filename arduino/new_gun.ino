@@ -85,6 +85,10 @@ void handlePacket(Packet &packet) {
       break;
     case ACK_PACKET:
       currShot = pendingCurrShot; // apply pending state
+      remainingBullets = 7 - currShot;
+      for (int i = 1; i <= currShot; i++) {
+        updateLED(7-i);
+      }
       hasHandshake = true;
       break;
     case NAK_PACKET:
@@ -191,7 +195,7 @@ void readButton(unsigned long currMillis) {
           unacknowledgedShots.insert(currShot);
           lastGunShotTime = currMillis;
           currShot++;
-          updateLED(remainingBullets);  // updates led strip and reloads mag if empty
+          updateLED(remainingBullets);
         }
       }
     }
@@ -256,8 +260,8 @@ void reloadMag() {
   pixels.show();
 }
 
-void updateLED(int remainingBullets) {
-  pixels.setPixelColor(remainingBullets, pixels.Color(0, 0, 0));
+void updateLED(int bulletToOff) {
+  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0));
   pixels.show();
 }
 
