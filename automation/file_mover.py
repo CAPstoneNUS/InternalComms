@@ -2,7 +2,16 @@ import os
 import shutil
 
 # Define action words
-actions = ["bball", "bomb", "bowling", "logout", "reload", "shield", "soccer", "volley"]
+actions = [
+    "bball",
+    "bomb",
+    "bowling",
+    "logout",
+    "reload",
+    "shield",
+    "soccer",
+    "volley",
+]
 
 # Define the relative path to the data folder (go up one level from 'automation')
 data_folder = os.path.join(os.path.dirname(__file__), "../data")
@@ -12,7 +21,7 @@ for filename in os.listdir(data_folder):
     # Check if the file starts with '38' or '70' and contains any action word
     if filename.startswith(("38", "70")) and filename.endswith(".csv"):
         for action in actions:
-            if f"_{action}_" in filename:
+            if f"_{action}" in filename:
                 # Determine the target folder (ankle or gun)
                 if filename.startswith("38"):
                     target_folder = os.path.join(data_folder, action, "gun")

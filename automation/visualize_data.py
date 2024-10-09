@@ -32,8 +32,17 @@ def plot_imu_comparison(data_imu, columns, output_image, imu_label="IMU"):
 
 
 # Define the list of actions
-actions = ["bball", "bomb", "bowling", "logout", "reload", "shield", "soccer", "volley"]
-# actions = ["bomb"]
+actions = [
+    "bball",
+    "bomb",
+    "bowling",
+    "logout",
+    "reload",
+    "shield",
+    "soccer",
+    "volley",
+]
+# actions = ["bomb", "bowling", "logout", "reload", "shield"]
 
 # Define the "data/" directory path relative to the automation script
 base_data_folder = os.path.join(os.path.dirname(__file__), "../data")

@@ -5,7 +5,8 @@ import os
 automation_folder = os.path.dirname(__file__)
 
 # List of scripts to run in order
-scripts = ["balance_entries.py", "file_mover.py", "visualize_data.py"]
+# scripts = ["balance_entries.py", "file_mover.py", "visualize_data.py"]
+scripts = ["file_mover.py"]
 
 
 # Function to print a nicely formatted header/footer for each script
