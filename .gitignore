@@ -1,8 +1,6 @@
 myenv/
 data/
 logs/
-viz/
-notebooks/
 
 *.csv
 *.yaml
