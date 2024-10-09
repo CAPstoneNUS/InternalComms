@@ -46,8 +46,8 @@ class BeetleDelegate(btle.DefaultDelegate):
         total_window_data (int): Total size of data received in bytes. Reset everytime stats are displayed.
         total_data (int): Total size of data received in bytes since start.
 
-        unacknowledged_gunshots (set): Set to temporarily store Shot IDs with pending ACKs.
-        successful_gunshots (set): Set to store Shot IDs that have been successfully acknowledged.
+        _unacknowledged_gunshots (set): Set to temporarily store Shot IDs with pending ACKs.
+        _successful_gunshots (set): Set to store Shot IDs that have been successfully acknowledged.
 
         frag_packet_count (int): Count of fragmented packets received.
         corrupt_packet_count (int): Count of corrupted packets received.
@@ -81,9 +81,9 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         # Gun handling
         self._gunshot_in_progress = False
-        self.successful_gunshots = set()
-        self.unacknowledged_gunshots = set()
-        self.expected_gunshot_id = 1
+        self._successful_gunshots = set()
+        self._unacknowledged_gunshots = set()
+        self._expected_gunshot_id = 1
 
         # Vest handling
         self._vestshot_in_progress = False
@@ -317,7 +317,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleGunPacket(self, data):
         """
-        Adds the Shot ID to the unacknowledged_gunshots set() and sends the SYN-ACK packet.
+        Adds the Shot ID to the _unacknowledged_gunshots set() and sends the SYN-ACK packet.
 
         Args:
             data (bytes): The gun shot packet.
@@ -331,19 +331,19 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         # Send NAK if a shot is skipped and return
         shotID, remainingBullets = struct.unpack("<2B16x", data)
-        if shotID != self.expected_gunshot_id:
+        if shotID != self._expected_gunshot_id:
             self.logger.warning(
-                f">> Skipped Shot ID {self.expected_gunshot_id} and got {shotID} instead."
+                f">> Skipped Shot ID {self._expected_gunshot_id} and got {shotID} instead."
             )
-            self.sendGunNAK(self.expected_gunshot_id)
+            self.sendGunNAK(self._expected_gunshot_id)
             return
 
         # Handle gun shot
         self._gunshot_in_progress = True
-        if shotID not in self.unacknowledged_gunshots:
+        if shotID not in self._unacknowledged_gunshots:
             self.logger.info(f">> Shot ID {shotID} received.")
-            self.unacknowledged_gunshots.add(shotID)
-            self.expected_gunshot_id = shotID + 1
+            self._unacknowledged_gunshots.add(shotID)
+            self._expected_gunshot_id = shotID + 1
             self.game_state.useBullet()  ### TODO Add assert to verify bullet count against remainingBullets
             self.sendGunSYNACK(shotID, remainingBullets)
             Timer(
@@ -373,17 +373,17 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleGunACK(self, data):
         """
-        Appends the Shot ID to the successful_gunshots list(), puts it
-        in the queue and removes it from unacknowledged_gunshots set().
+        Appends the Shot ID to the _successful_gunshots list(), puts it
+        in the queue and removes it from _unacknowledged_gunshots set().
 
         Args:
             data (bytes): The gun shot acknowledgement packet.
         """
         shotID, remainingBullets = struct.unpack("<2B16x", data)
-        if shotID in self.unacknowledged_gunshots:
+        if shotID in self._unacknowledged_gunshots:
             self._gunshot_in_progress = False
-            self.unacknowledged_gunshots.remove(shotID)
-            self.successful_gunshots.add(shotID)
+            self._unacknowledged_gunshots.remove(shotID)
+            self._successful_gunshots.add(shotID)
             self.game_state.applyGunState(bullets=remainingBullets)
             self.checkForMissingShots(shotID)
             self.data_queue.put(
@@ -391,11 +391,11 @@ class BeetleDelegate(btle.DefaultDelegate):
                     "id": self.beetle_id,
                     "type": GUN_PKT,
                     "shotID": shotID,
-                    "successfulShots": self.successful_gunshots,
+                    "successfulShots": self._successful_gunshots,
                 }
             )
             self.logger.info(f">> Shot ID {shotID} acknowledged.")
-            self.logger.info(f"Successful shots: {self.successful_gunshots}")
+            self.logger.info(f"Successful shots: {self._successful_gunshots}")
         else:
             self.logger.warning(
                 f">> Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
@@ -417,7 +417,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             curr_shot (int): The Shot ID of the current gun shot.
         """
         for shot in range(1, curr_shot):
-            if shot not in self.successful_gunshots:
+            if shot not in self._successful_gunshots:
                 self.logger.warning(
                     f"Missing Shot ID: {shot}. Sending retransmission request."
                 )
@@ -443,7 +443,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             shotID (int): The Shot ID of the gun shot.
         """
-        if shotID in self.unacknowledged_gunshots:
+        if shotID in self._unacknowledged_gunshots:
             self.logger.warning(
                 f"Timeout for Shot ID: {shotID}. Resending GUN SYN-ACK."
             )
@@ -460,9 +460,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         if self._action_in_progress:
             self.logger.info(">> Received RELOAD SYN-ACK.")
-            self.expected_gunshot_id = 1
-            self.unacknowledged_gunshots = set()
-            self.successful_gunshots = set()
+            self._expected_gunshot_id = 1
+            self._unacknowledged_gunshots = set()
+            self._successful_gunshots = set()
             self.game_state.applyGunState(bullets=self.MAG_SIZE)
             self._action_in_progress = False
             self.sendReloadACK()
@@ -588,3 +588,27 @@ class BeetleDelegate(btle.DefaultDelegate):
     @last_packet.setter
     def last_packet(self, value):
         self._last_packet = value
+
+    @property
+    def expected_gunshot_id(self):
+        return self._expected_gunshot_id
+
+    @expected_gunshot_id.setter
+    def expected_gunshot_id(self, value):
+        self._expected_gunshot_id = value
+
+    @property
+    def successful_gunshots(self):
+        return self._successful_gunshots
+
+    @successful_gunshots.setter
+    def successful_gunshots(self, value):
+        self._successful_gunshots = value
+
+    @property
+    def unacknowledged_gunshots(self):
+        return self._unacknowledged_gunshots
+
+    @unacknowledged_gunshots.setter
+    def unacknowledged_gunshots(self, value):
+        self._unacknowledged_gunshots = value

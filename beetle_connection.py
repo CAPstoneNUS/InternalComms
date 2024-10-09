@@ -194,6 +194,8 @@ class BeetleConnection:
         # Sync game state
         if self.mac_address == self.config["device"]["beetle_1"]:  # gun
             currShot = self.game_state.getCurrShot()
+            self.beetle_delegate.expected_gunshot_id = currShot
+            self.beetle_delegate.successful_gunshots = {i for i in range(1, currShot)}
             syn_packet = struct.pack("bB17s", ord(HS_SYN_PKT), currShot, bytes(17))
         elif self.mac_address == self.config["device"]["beetle_3"]:  # vest
             shield, health = self.game_state.getShieldHealth()

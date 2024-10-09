@@ -30,9 +30,9 @@ def main():
     beetle_threads = []
     game_state = GameState()
     data_queue = queue.Queue()
-    relay_client = RelayClient(
-        data_queue, config["device"]["ultra_ip"], config["device"]["ultra_port"]
-    )
+    # relay_client = RelayClient(
+    #     data_queue, config["device"]["ultra_ip"], config["device"]["ultra_port"]
+    # )
 
     for mac in beetle_macs:
         logger = setupLogger(config, mac)
@@ -41,14 +41,14 @@ def main():
         beetle_threads.append(thread)
         thread.start()
 
-    # consumer_thread = threading.Thread(target=dataConsumer, args=(config, data_queue))
-    # consumer_thread.start()
-    relay_client.start()
+    consumer_thread = threading.Thread(target=dataConsumer, args=(config, data_queue))
+    consumer_thread.start()
+    # relay_client.start()
 
     for thread in beetle_threads:
         thread.join()
 
-    relay_client.join()
+    # relay_client.join()
 
 
 if __name__ == "__main__":
