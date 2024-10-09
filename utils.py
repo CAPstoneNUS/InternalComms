@@ -15,6 +15,36 @@ def loadConfig():
         return yaml.safe_load(file)
 
 
+def writeCSV(data):
+    """
+    Function to process data and write it to CSV files.
+
+    This function writes the input data to separate CSV files based on 
+    the Beetle ID and packet type. It creates a new CSV file (if it doesn't exist)
+    and appends the data to the file as it arrives.
+
+    Args:
+        data (dict): A dictionary containing the data to be written to the CSV.
+    """
+    data_dir = "data"
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    data_path = os.path.join(os.getcwd(), data_dir)
+
+    id_and_type = f"{data['id']}_{data['type']}"
+    filename = os.path.join(data_path, f"{id_and_type}_data_stream.csv")
+
+    # Open file in append mode using a context manager
+    with open(filename, "a", newline="") as csv_file:
+        csv_writer = csv.DictWriter(csv_file, fieldnames=data.keys())
+
+        # Only write the header if the file is empty
+        if csv_file.tell() == 0:
+            csv_writer.writeheader()
+
+        # Write the row of data
+        csv_writer.writerow(data)
+
 def dataConsumer(config, data_queue):
     """
     Consumer function to process data from the queue and write it to CSV files.
@@ -24,8 +54,8 @@ def dataConsumer(config, data_queue):
     the data to the file as it arrives.
 
     Args:
-    config (dict): The configuration dictionary loaded from the config.yaml file.
-    data_queue (Queue): The shared queue object for data storage.
+        config (dict): The configuration dictionary loaded from the config.yaml file.
+        data_queue (Queue): The shared queue object for data storage.
     """
     csv_files = {}
     csv_writers = {}
