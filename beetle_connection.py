@@ -54,7 +54,6 @@ class BeetleConnection:
         self.game_state = game_state
         self.beetle = None
         self.beetle_delegate = None
-        self.handshake_attempts = 1
         self.beetle_state = BeetleState.DISCONNECTED
         self._syn_flag, self._ack_flag = False, False
         self.serial_service, self.serial_characteristic = None, None
@@ -90,10 +89,9 @@ class BeetleConnection:
                         self.beetle_state = BeetleState.READY
                     else:
                         self.logger.error(
-                            f"Handshake failed. Retrying in {self.HANDSHAKE_INTERVAL * self.handshake_attempts} second(s)..."
+                            f"Handshake failed. Retrying in {self.HANDSHAKE_INTERVAL} second(s)..."
                         )
-                        time.sleep(self.HANDSHAKE_INTERVAL * self.handshake_attempts)
-                        self.handshake_attempts += 1
+                        time.sleep(self.HANDSHAKE_INTERVAL)
 
                 # Step 3: Wait for notifications
                 if self.beetle_state == BeetleState.READY:

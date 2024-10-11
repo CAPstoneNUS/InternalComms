@@ -249,13 +249,21 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             data (bytes): The IMU data packet.
         """
-        current_time = time.time()
         unpacked_data = struct.unpack("<6h6x", data)
         accX, accY, accZ, gyrX, gyrY, gyrZ = unpacked_data
         imu_data = {
             "id": self.beetle_id,
             "type": IMU_DATA_PKT,
-            "timestamp": current_time,
+            "accX": accX,
+            "accY": accY,
+            "accZ": accZ,
+            "gyrX": gyrX,
+            "gyrY": gyrY,
+            "gyrZ": gyrZ,
+        }
+        imu_data2 = {
+            "id": "38",
+            "type": IMU_DATA_PKT,
             "accX": accX,
             "accY": accY,
             "accZ": accZ,
@@ -268,6 +276,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.data_queue.get()
 
         self.data_queue.put(imu_data)
+        self.data_queue.put(imu_data2)
 
     def simulateRandomAction(self):
         """
