@@ -98,22 +98,22 @@ void handlePacket(Packet &packet) {
       unacknowledgedShots.erase(packet.shotID);
       sendPacket(GUN_ACK_PACKET, packet.shotID, remainingBullets);
       break;
-      case RELOAD_PACKET: // recvs reload packet from laptop
-        sendPacket(RELOAD_ACK_PACKET);
-        reloadInProgress = true;
-        reloadStartTime = millis();
-        break;
-      case RELOAD_ACK_PACKET:
-        if (!unacknowledgedShots.empty()) {
-          for (const auto& shot : unacknowledgedShots) {
-            sendPacket(GUN_PACKET, shot);
-          }
+    case RELOAD_PACKET: // recvs reload packet from laptop
+      sendPacket(RELOAD_ACK_PACKET);
+      reloadInProgress = true;
+      reloadStartTime = millis();
+      break;
+    case RELOAD_ACK_PACKET:
+      if (!unacknowledgedShots.empty()) {
+        for (const auto& shot : unacknowledgedShots) {
+          sendPacket(GUN_PACKET, shot);
         }
-        unacknowledgedShots.clear();
-        reloadMag();
-        reloadInProgress = false;
-        reloadStartTime = 0;
-        break;
+      }
+      unacknowledgedShots.clear();
+      reloadMag();
+      reloadInProgress = false;
+      reloadStartTime = 0;
+      break;
   }
 }
 
@@ -265,14 +265,13 @@ void updateLED(int bulletToOff) {
   pixels.show();
 }
 
+#define OFFSET_A_X -9.48
+#define OFFSET_A_Y 0.21
+#define OFFSET_A_Z 0.08
 
-#define OFFSET_A_X -9.05
-#define OFFSET_A_Y 1.47
-#define OFFSET_A_Z -1.17
-
-#define OFFSET_G_X -0.11
-#define OFFSET_G_Y 0.03
-#define OFFSET_G_Z 0.01
+#define OFFSET_G_X -0.07
+#define OFFSET_G_Y 0.00
+#define OFFSET_G_Z -0.01
 
 void calibrateIMU(sensors_event_t *a, sensors_event_t *g) {
   // Apply accelerometer offsets
