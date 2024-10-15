@@ -7,6 +7,15 @@ from bluepy import btle
 import yaml
 
 
+def signal_handler(signal, frame, beetles):
+    print("Ctrl+C detected. Sending reset signals to all Beetles...")
+
+    for beetle in beetles:
+        beetle.sendResetCommand()  # This method should handle sending the reset packet
+
+    sys.exit(0)  # Gracefully exit the program after sending the reset signal
+
+
 def loadConfig():
     """
     Load the configuration from the config.yaml file.
@@ -19,7 +28,7 @@ def writeCSV(data):
     """
     Function to process data and write it to CSV files.
 
-    This function writes the input data to separate CSV files based on 
+    This function writes the input data to separate CSV files based on
     the Beetle ID and packet type. It creates a new CSV file (if it doesn't exist)
     and appends the data to the file as it arrives.
 
@@ -44,6 +53,7 @@ def writeCSV(data):
 
         # Write the row of data
         csv_writer.writerow(data)
+
 
 def dataConsumer(config, data_queue):
     """
@@ -73,7 +83,9 @@ def dataConsumer(config, data_queue):
             if id_and_type not in csv_files:
                 filename = os.path.join(data_path, f"{id_and_type}_data.csv")
                 csv_files[id_and_type] = open(filename, "w", newline="")
-                csv_writers[id_and_type] = csv.DictWriter(csv_files[id_and_type], fieldnames=data.keys())
+                csv_writers[id_and_type] = csv.DictWriter(
+                    csv_files[id_and_type], fieldnames=data.keys()
+                )
                 csv_writers[id_and_type].writeheader()
 
             csv_writers[id_and_type].writerow(data)

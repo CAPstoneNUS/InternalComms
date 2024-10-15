@@ -1,6 +1,7 @@
 myenv/
 data/
 logs/
+extcomms/
 
 *.csv
 *.yaml

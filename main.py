@@ -1,9 +1,11 @@
+import sys
+import signal
 import queue
 import threading
 from game_state import GameState
 from relay_client import RelayClient
 from beetle_connection import BeetleConnection
-from utils import loadConfig, dataConsumer, setupLogger
+from utils import loadConfig, dataConsumer, setupLogger, signal_handler
 
 
 def main():
@@ -28,18 +30,33 @@ def main():
     ]
 
     beetle_threads = []
+    beetle_conns = []
     game_state = GameState()
-    data_queue = queue.Queue()
-    relay_client = RelayClient(config, data_queue)
+    sender_queue = queue.Queue()
+    server_gun_state, server_vest_state = queue.Queue(maxsize=1), queue.Queue(maxsize=1)
+    relay_client = RelayClient(
+        config, sender_queue, server_gun_state, server_vest_state
+    )
 
     for mac in beetle_macs:
         logger = setupLogger(config, mac)
-        beetle = BeetleConnection(config, logger, mac, data_queue, game_state)
+        beetle = BeetleConnection(
+            config,
+            logger,
+            mac,
+            sender_queue,
+            server_gun_state,
+            server_vest_state,
+            game_state,
+        )
+        beetle_conns.append(beetle)
         thread = threading.Thread(target=beetle.startComms)
         beetle_threads.append(thread)
         thread.start()
 
-    # consumer_thread = threading.Thread(target=dataConsumer, args=(config, data_queue))
+    signal.signal(signal.SIGINT, lambda sig, frame: signal_handler(sig, frame, beetle_conns))
+
+    # consumer_thread = threading.Thread(target=dataConsumer, args=(config, sender_queue))
     # consumer_thread.start()
     relay_client.start()
 

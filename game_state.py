@@ -79,6 +79,13 @@ class GunState:
         with self._lock:
             return self._state.copy()
 
+    def updateState(self, **kwargs):
+        with self._lock:
+            self._pending_state = self._state.copy()
+            for key, value in kwargs.items():
+                if key in self._pending_state:
+                    self._pending_state[key] = value
+
     def applyState(self, **kwargs):
         with self._lock:
             if self._pending_state is None:
@@ -126,6 +133,9 @@ class GameState:
     def applyVestState(self, **kwargs):
         return self.vest_state.applyState(**kwargs)
 
+    def updateGunState(self, **kwargs):
+        self.gun_state.updateState(**kwargs)
+
     def applyGunState(self, **kwargs):
         return self.gun_state.applyState(**kwargs)
 
@@ -137,15 +147,18 @@ class GameState:
         return self.gun_state.useBullet()
 
     def reload(self):
-        print("Mag empty. Reloading...")
+        print("Reloading...")
         self.gun_state.reload()
 
     def refreshShield(self):
         print("+30 shield")
         self.vest_state.refreshShield()
 
+    def getRemainingBullets(self):
+        return self.gun_state.getState()["bullets"]
+
     def getCurrShot(self):
-        shotsInMag = self.gun_state.getState()["bullets"]
+        shotsInMag = self.getRemainingBullets()
         return 7 - shotsInMag
 
     def getShieldHealth(self):

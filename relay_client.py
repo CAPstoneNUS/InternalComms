@@ -4,13 +4,37 @@ import threading
 from utils import writeCSV
 from collections import deque
 from socket import socket, AF_INET, SOCK_STREAM
+import csv
+import os
 
+def append_paired_data_to_csv(file_path, paired_data):
+    # Check if the CSV file already exists
+    file_exists = os.path.isfile(file_path)
+    
+    # Define the fieldnames for the CSV (headers)
+    fieldnames = [
+        "type", "gunAccX", "gunAccY", "gunAccZ", "gunGyrX", "gunGyrY", "gunGyrZ",
+        "ankleAccX", "ankleAccY", "ankleAccZ", "ankleGyrX", "ankleGyrY", "ankleGyrZ"
+    ]
+    
+    # Open the CSV file in append mode
+    with open(file_path, mode='a', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        
+        # Write the header only if the file doesn't exist
+        if not file_exists:
+            writer.writeheader()
+        
+        # Append the data to the CSV file
+        writer.writerow(paired_data)
 
 class RelayClient(threading.Thread):
-    def __init__(self, config, sending_q):
+    def __init__(self, config, sender_queue, server_gun_state, server_vest_state):
         super().__init__()
         self.config = config
-        self.sending_q = sending_q
+        self.sender_queue = sender_queue
+        self.server_gun_state = server_gun_state
+        self.server_vest_state = server_vest_state
 
         self.ip = self.config["device"]["ultra_ip"]
         self.port = self.config["device"]["ultra_port"]
@@ -27,12 +51,12 @@ class RelayClient(threading.Thread):
         self.relayclient.setblocking(False)
 
     def run(self):
-        receiving_thread = threading.Thread(target=self.receive)
-        receiving_thread.start()
+        receiver_thread = threading.Thread(target=self.receive)
+        receiver_thread.start()
 
         try:
             while True:
-                client_data = self.sending_q.get()
+                client_data = self.sender_queue.get()
                 self.processAndSendData(client_data)
         except Exception as e:
             print(f"Error in main loop of RelayClient: {e}")
@@ -51,8 +75,10 @@ class RelayClient(threading.Thread):
                         paired_data = self.pairIMUData(
                             self.gun_buffer[0], self.ankle_buffer[0]
                         )
+                        append_paired_data_to_csv("paired_data.csv", paired_data)
                         self.sendToUltra(paired_data)
             else:
+                del client_data["id"]
                 self.sendToUltra(client_data)
 
         except Exception as e:
@@ -87,9 +113,9 @@ class RelayClient(threading.Thread):
         try:
             msg_str = json.dumps(data)
             msg_tosend = f"{len(msg_str)}_{msg_str}"
-            print(f"Preparing to send data...")
+            # print(f"SENDING: {msg_tosend}")
             self.relayclient.sendall(msg_tosend.encode("utf-8"))
-            print("Sent to Ultra96", end="\r")
+            # print("Sent to Ultra96", end="\r")
         except socket.timeout:
             print("Socket timed out")
         except socket.error as e:
@@ -122,9 +148,42 @@ class RelayClient(threading.Thread):
                         break
                 decoded_data = data.decode("utf-8")
                 print(f"[RELAY CLIENT] {decoded_data}\n")
+                # ----------------------------------------------------------- #
+                # Assuming the decoded data comes in the form,
+                # {
+                # "hp": 100,
+                # "bullets": 6,
+                # "shield_hp": 30,
+                # }
+                # ----------------------------------------------------------- #
+                decoded_data = json.loads(decoded_data)
+                if (
+                    "bullets" in decoded_data
+                    and "hp" in decoded_data
+                    and "shield_hp" in decoded_data
+                ):
+                    self.safePut(
+                        self.server_gun_state,
+                        {"bullets": decoded_data["bullets"]},
+                    )
+                    self.safePut(
+                        self.server_vest_state,
+                        {
+                            "health": decoded_data["hp"],
+                            "shield": decoded_data["shield_hp"],
+                        },
+                    )
+                else:
+                    raise KeyError("One or more keys missing from the dictionary.")
             except BlockingIOError:
                 time.sleep(0.1)
             except Exception as e:
                 print(f"Error receiving data: {e}")
                 self.relayclient.close()
                 break
+
+    def safePut(self, q, data):
+        if q.full():
+            print(f"Replacing data in queue with {data}")
+            q.get()
+        q.put(data)
