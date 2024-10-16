@@ -11,9 +11,9 @@ def signal_handler(signal, frame, beetles):
     print("Ctrl+C detected. Sending reset signals to all Beetles...")
 
     for beetle in beetles:
-        beetle.sendResetCommand()  # This method should handle sending the reset packet
+        beetle.sendResetCommand()
 
-    sys.exit(0)  # Gracefully exit the program after sending the reset signal
+    sys.exit(0)
 
 
 def loadConfig():

@@ -7,26 +7,39 @@ from socket import socket, AF_INET, SOCK_STREAM
 import csv
 import os
 
+
 def append_paired_data_to_csv(file_path, paired_data):
     # Check if the CSV file already exists
     file_exists = os.path.isfile(file_path)
-    
+
     # Define the fieldnames for the CSV (headers)
     fieldnames = [
-        "type", "gunAccX", "gunAccY", "gunAccZ", "gunGyrX", "gunGyrY", "gunGyrZ",
-        "ankleAccX", "ankleAccY", "ankleAccZ", "ankleGyrX", "ankleGyrY", "ankleGyrZ"
+        "type",
+        "gunAccX",
+        "gunAccY",
+        "gunAccZ",
+        "gunGyrX",
+        "gunGyrY",
+        "gunGyrZ",
+        "ankleAccX",
+        "ankleAccY",
+        "ankleAccZ",
+        "ankleGyrX",
+        "ankleGyrY",
+        "ankleGyrZ",
     ]
-    
+
     # Open the CSV file in append mode
-    with open(file_path, mode='a', newline='') as csv_file:
+    with open(file_path, mode="a", newline="") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        
+
         # Write the header only if the file doesn't exist
         if not file_exists:
             writer.writeheader()
-        
+
         # Append the data to the CSV file
         writer.writerow(paired_data)
+
 
 class RelayClient(threading.Thread):
     def __init__(self, config, sender_queue, server_gun_state, server_vest_state):
@@ -47,7 +60,7 @@ class RelayClient(threading.Thread):
 
         self.relayclient = socket(AF_INET, SOCK_STREAM)
         self.relayclient.connect((self.ip, self.port))
-        print(f"Connected to {self.ip} and port {self.port} \n")
+        print(f"\n+++++++++ CONNECTED TO {self.ip} & PORT {self.port} +++++++++\n")
         self.relayclient.setblocking(False)
 
     def run(self):
@@ -64,7 +77,8 @@ class RelayClient(threading.Thread):
 
     def processAndSendData(self, client_data):
         try:
-            if client_data["id"] in [self.gun_id, self.ankle_id]:
+            # if client_data["id"] in [self.gun_id, self.ankle_id]:
+            if client_data["type"] == "M":
                 with self.lock:
                     if client_data["id"] == self.gun_id:
                         self.gun_buffer.append(client_data)
@@ -79,6 +93,7 @@ class RelayClient(threading.Thread):
                         self.sendToUltra(paired_data)
             else:
                 del client_data["id"]
+                print(f"Sending [{client_data['type']}] type")
                 self.sendToUltra(client_data)
 
         except Exception as e:
@@ -147,7 +162,7 @@ class RelayClient(threading.Thread):
                     if len(data) == 0:
                         break
                 decoded_data = data.decode("utf-8")
-                print(f"[RELAY CLIENT] {decoded_data}\n")
+                print(f"\nServer sent: {decoded_data}\n")
                 # ----------------------------------------------------------- #
                 # Assuming the decoded data comes in the form,
                 # {
