@@ -403,7 +403,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.logger.warning(
                 f">> Skipped Shot ID {self._expected_gunshot_id} and got {shotID} instead."
             )
-            self.sendGunNAK(self._expected_gunshot_id)
+            # self.sendGunNAK(self._expected_gunshot_id)
             return
 
         # Handle gun shot
@@ -437,7 +437,11 @@ class BeetleDelegate(btle.DefaultDelegate):
         crc = getCRC(synack_packet)
         synack_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(synack_packet)
-        # Timer()
+        # Timer(
+        #     3,
+        #     self.handleGunTimeout,
+        #     args=[shotID, self._gunshot_in_progress, remainingBullets],
+        # )
 
     def handleGunACK(self, data):
         """
@@ -509,23 +513,23 @@ class BeetleDelegate(btle.DefaultDelegate):
         rt_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(rt_packet)
 
-    def handleGunTimeout(self, shotID, remainingBullets):
+    def handleGunTimeout(self, shotID, flag, remainingBullets):
         """
         Resends the GUN SYN-ACK packet if no ACK is received within the timeout duration.
 
         Args:
             shotID (int): The Shot ID of the gun shot.
         """
-        if shotID in self._unacknowledged_gunshots:
+        if shotID in self._unacknowledged_gunshots and flag:
             self.logger.warning(
                 f"Timeout for Shot ID: {shotID}. Resending GUN SYN-ACK."
             )
             self.sendGunSYNACK(shotID, remainingBullets)
-            # Timer(
-            #     self.RESEND_PKT_TIMEOUT,
-            #     self.handleGunTimeout,
-            #     args=[shotID, remainingBullets],
-            # ).start()
+            Timer(
+                3,
+                self.handleGunTimeout,
+                args=[shotID, flag, remainingBullets],
+            ).start()
 
     # ---------------------------- Reload Handling ---------------------------- #
 
