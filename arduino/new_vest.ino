@@ -5,16 +5,13 @@
 #include "PinDefinitionsAndMore.h"
 
 #define SYN_PACKET 'S'
+#define KILL_PACKET 'J'
 #define ACK_PACKET 'A'
-#define NAK_PACKET 'L'
-#define BOMB_PACKET 'B'
-#define BOMB_ACK_PACKET 'C'
-#define ATTACK_PACKET 'K'
-#define ATTACK_ACK_PACKET 'E'
-#define SHIELD_PACKET 'P'
-#define SHIELD_ACK_PACKET 'Q'
+// #define NAK_PACKET 'L'
 #define VESTSHOT_PACKET 'V'
 #define VESTSHOT_ACK_PACKET 'Z'
+#define STATE_PACKET 'D'
+#define STATE_ACK_PACKET 'W'
 
 #define MAX_SHIELD 30
 #define MAX_HEALTH 100
@@ -29,7 +26,7 @@
 #define NUMPIXELS 10
 #define RECV_PIN 2
 
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 CRC8 crc8;
 
@@ -40,18 +37,16 @@ bool hasHandshake = false;
 int RED_ENCODING_VALUE = 0xFF6897;
 int ATTACK_ENCODING_VALUE = 0xFF9867; //TOD
 
-struct PacketTimeout {
-  char packetType;
-  unsigned long lastSentTime;
-  bool waiting;
-};
+// struct PacketTimeout {
+//   char packetType;
+//   unsigned long lastSentTime;
+//   bool waiting;
+// };
 
-PacketTimeout timeouts[] = {
-  {BOMB_PACKET, 0, false},
-  {ATTACK_PACKET, 0, false},
-  {SHIELD_PACKET, 0, false},
-  {VESTSHOT_PACKET, 0, false}
-};
+// PacketTimeout timeouts[] = {
+//   {STATE_PACKET, 0, false},
+//   {VESTSHOT_PACKET, 0, false}
+// };
 
 struct Packet {
   char packetType;
@@ -62,6 +57,8 @@ struct Packet {
 };
 
 Packet lastPacket;
+
+// ---------------- Pending State Management ---------------- //
 
 struct PendingState {
   uint8_t shield;
@@ -74,6 +71,23 @@ void initializePendingState() {
   pendingState.health = health;
   pendingState.isPending = false;
 }
+
+void updatePendingState(uint8_t shield, uint8_t health) {
+  pendingState.shield = shield;
+  pendingState.health = health;
+  pendingState.isPending = true;
+}
+
+void applyPendingState() {
+  if (pendingState.isPending) {
+    shield = pendingState.shield;
+    health = pendingState.health;
+    pendingState.isPending = false;
+    updateLED();
+  }
+}
+
+// --------------------------------------------------------- //
 
 void sendPacket(char packetType) {
   // Prepare packet
@@ -92,23 +106,14 @@ void sendPacket(char packetType) {
   // Store last packet
   lastPacket = packet;
 
-  // Set timeout for the sent packet
-  for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
-    if (timeouts[i].packetType == packetType) {
-      timeouts[i].lastSentTime = millis();
-      timeouts[i].waiting = true;
-      break;
-    }
-  }
-}
-
-void applyPendingState() {
-  if (pendingState.isPending) {
-    shield = pendingState.shield;
-    health = pendingState.health;
-    pendingState.isPending = false;
-    updateLED();
-  }
+  // // Set timeout for the sent packet
+  // for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
+  //   if (timeouts[i].packetType == packetType) {
+  //     timeouts[i].lastSentTime = millis();
+  //     timeouts[i].waiting = true;
+  //     break;
+  //   }
+  // }
 }
 
 void applyDamageToPendingState(uint8_t damage) {
@@ -130,67 +135,45 @@ void applyDamageToPendingState(uint8_t damage) {
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case SYN_PACKET:
-      // sync game state upon reconnection
-      pendingState.shield = packet.shield;
-      pendingState.health = packet.health;
-      pendingState.isPending = true;
+      // Sync game state upon reconnection
+      updatePendingState(packet.shield, packet.health);
       sendPacket(ACK_PACKET);
       break;
     case ACK_PACKET:
       applyPendingState();
       hasHandshake = true;
       break;
-    case NAK_PACKET:
-      Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
+    // case NAK_PACKET:
+    //   Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
+    //   break;
+    case STATE_PACKET:
+      updatePendingState(packet.shield, packet.health);
+      sendPacket(STATE_ACK_PACKET);
       break;
-    case BOMB_PACKET:
-      applyDamageToPendingState(5);
-      sendPacket(BOMB_ACK_PACKET);
-      break;
-    case BOMB_ACK_PACKET:
+    case STATE_ACK_PACKET:
       applyPendingState();
-      timeouts[0].waiting = false;
-      break;
-    case ATTACK_PACKET:
-      applyDamageToPendingState(10);
-      sendPacket(ATTACK_ACK_PACKET);
-      break;
-    case ATTACK_ACK_PACKET:
-      applyPendingState();
-      timeouts[1].waiting = false;
-      break;
-    case SHIELD_PACKET:
-      pendingState.shield = MAX_SHIELD; // set to 30 on cast, cannot stack
-      pendingState.isPending = true;
-      sendPacket(SHIELD_ACK_PACKET);
-      break;
-    case SHIELD_ACK_PACKET:
-      applyPendingState();
-      timeouts[2].waiting = false;
       break;
     case VESTSHOT_ACK_PACKET:
       applyPendingState();
-      timeouts[3].waiting = false;
+      // timeouts[1].waiting = false;
       sendPacket(VESTSHOT_ACK_PACKET);
       break;
+    case KILL_PACKET:
+      asm volatile ("jmp 0");
   }
 }
 
 void setup() {
-    Serial.begin(115200);
-    // while (!Serial); // Wait for Serial to become available. Is optimized away for some cores.
-    // Just to know which program is running on my Arduino
-    // Serial.println(F("START " __FILE__ " from " __DATE__ "\r\nUsing library version " VERSION_IRREMOTE));
-    IrReceiver.begin(RECV_PIN, ENABLE_LED_FEEDBACK);
-    initializePendingState();
-    // Start the receiver and if not 3. parameter specified, take LED_BUILTIN pin from the internal boards definition as default feedback LED
-    pixels.begin();
-    
-    updateLED();
+  Serial.begin(115200);
+  IrReceiver.begin(RECV_PIN, ENABLE_LED_FEEDBACK);
+  initializePendingState();
+  pixels.begin();
+  updateLED();
+  hasHandshake = false;
 }
 
 void loop(){
-  // Laptop --> Vest Beetle
+  // Laptop --> Vest
   if (Serial.available() >= sizeof(Packet)) {
     Packet receivedPacket;
     Serial.readBytes((byte *)&receivedPacket, sizeof(Packet));
@@ -201,25 +184,23 @@ void loop(){
 
     if (calculatedCRC == receivedPacket.crc) {
       handlePacket(receivedPacket);
-    } else {
-      sendPacket(NAK_PACKET);
     }
   }
 
   if (hasHandshake) {
-    // Gun Beetle --> Vest Beetle
+    // Gun --> Vest
     if (IrReceiver.decode() && IrReceiver.decodedIRData.command == 0x16) {
       applyDamageToPendingState(5);
       sendPacket(VESTSHOT_PACKET);
       IrReceiver.resume();
     }
 
-    // Handle timeouts
-    for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
-      if (timeouts[i].waiting && (millis() - timeouts[i].lastSentTime > TIMEOUT_MS)) {
-        sendPacket(timeouts[i].packetType);
-      }
-    }
+    // // Handle timeouts
+    // for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
+    //   if (timeouts[i].waiting && (millis() - timeouts[i].lastSentTime > TIMEOUT_MS)) {
+    //     sendPacket(timeouts[i].packetType);
+    //   }
+    // }
   }
 }
 
@@ -231,14 +212,14 @@ void updateLED(){
   for (int i = 0; i < NUMPIXELS; i++) {
     if (i < full_leds) {
       // Fully lit LED (Green color: RGB -> 0, 5, 0 for dimmed green)
-      pixels.setPixelColor(i, pixels.Color(0, 5, 0));
+      pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
 
     } else if (i == full_leds && remainder > 0) {
       // Partially lit LED for the remainder HP (Color: RGB -> 0, 1, 0 for dimmer green)
-      pixels.setPixelColor(i, pixels.Color(0, 1, 0));
+      pixels.setPixelColor(i, pixels.Color(0, 1, 0, 0));
     } else {
       // Turn off the rest of the LEDs
-      pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+      pixels.setPixelColor(i, pixels.Color(0, 0, 0, 0));
     }
   }
   pixels.show();   

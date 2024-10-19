@@ -9,11 +9,12 @@
 
 #define SYN_PACKET 'S'
 #define ACK_PACKET 'A'  // For handshaking
-#define NAK_PACKET 'L'
+// #define NAK_PACKET 'L'
 #define IMU_PACKET 'M'
 #define GUN_PACKET 'G'
-#define RELOAD_PACKET 'R'
+#define GUN_NAK_PACKET 'T'
 #define GUN_ACK_PACKET 'X'     // For gunshot SYN-ACK from laptop
+#define RELOAD_PACKET 'R'
 #define RELOAD_ACK_PACKET 'Y'  // For reload ACK from laptop
 #define STATE_PACKET 'D'
 #define STATE_ACK_PACKET 'U'
@@ -33,7 +34,7 @@ bool stateUpdateInProgress = false;
 unsigned long reloadStartTime = 0;
 unsigned long stateUpdateStartTime = 0;
 unsigned long lastGunShotTime = 0;
-unsigned long responseTimeout = 1000;
+unsigned long responseTimeout = 1000; // 1s timeout
 
 // #define LED 3
 #define IR_PIN 3
@@ -42,7 +43,7 @@ unsigned long responseTimeout = 1000;
 #define LED_PIN 4
 #define NUMPIXELS 6
 
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 int RED_ENCODING_VALUE = 0xFF6897;     //TODO
 int ACTION_ENCODING_VALUE = 0xFF9867;  //TOD
@@ -55,20 +56,50 @@ bool buttonPressed = false;  // To track if the button was pressed
 
 struct Packet {
   char packetType;
-  uint8_t shotID;
+  uint8_t shotID; // AKA currShot
   uint8_t remainingBullets;
   byte padding[16];
   uint8_t crc;
 };
 
+// ---------------- Pending State Management ---------------- //
+
+struct PendingState {
+  uint8_t currShot;
+  uint8_t remainingBullets;
+  bool isPending;
+} pendingState;
+
+void initializePendingState() {
+  pendingState.currShot = currShot;
+  pendingState.remainingBullets = remainingBullets;
+  pendingState.isPending = false; 
+}
+
+void updatePendingState(uint8_t currShot, uint8_t remainingBullets) {
+  pendingState.currShot = currShot;
+  pendingState.remainingBullets = remainingBullets;
+  pendingState.isPending = true;
+}
+
+void applyPendingState() {
+  if (pendingState.isPending) {
+    currShot = pendingState.currShot;
+    remainingBullets = pendingState.remainingBullets;
+    pendingState.isPending = false;
+  }
+}
+
+// --------------------------------------------------------- //
+
 Packet lastPacket;
 
-void sendPacket(char packetType, uint8_t shotID = 0, uint8_t remainingBullets = 0) {
+void sendPacket(char packetType) {
   // Prepare packet
   Packet packet;
   packet.packetType = packetType;
-  packet.shotID = shotID; // doubles as a currShot sync variable for reconnections
-  packet.remainingBullets = remainingBullets;
+  packet.shotID = pendingState.isPending ? pendingState.currShot : currShot; // AKA currShot sync variable for reconnections
+  packet.remainingBullets = pendingState.isPending ? pendingState.remainingBullets : remainingBullets;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
   crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
@@ -85,24 +116,30 @@ void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case SYN_PACKET:
       // sync game state upon reconnection
-      pendingCurrShot = packet.shotID;
-      pendingRemainingBullets = packet.remainingBullets;
+      updatePendingState(packet.shotID, packet.remainingBullets);
       sendPacket(ACK_PACKET);
       break;
     case ACK_PACKET:
-      currShot = pendingCurrShot;
-      remainingBullets = pendingRemainingBullets;
+      applyPendingState();
       for (int i = 1; i <= currShot; i++) {
         updateLED(7-i);
       }
       hasHandshake = true;
       break;
-    case NAK_PACKET:
-      Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
+    // case NAK_PACKET:
+    //   Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
+    //   break;
+    case GUN_NAK_PACKET:
+      if (std::find(unacknowledgedShots.begin(), unacknowledgedShots.end(), packet.shotID) != unacknowledgedShots.end()) {
+        sendPacketWithID(GUN_PACKET, packet.shotID);
+      }
+      // sendPacketWithID(GUN_PACKET, packet.shotID); // honestly not correct, need to follow the one above this but it hangs in a beetle-laptop packet loop
       break;
     case GUN_ACK_PACKET:
+      applyPendingState();
       unacknowledgedShots.erase(packet.shotID);
-      sendPacket(GUN_ACK_PACKET, packet.shotID, remainingBullets);
+      sendPacket(GUN_ACK_PACKET);
+      currShot++;
       break;
     case RELOAD_PACKET: // recvs reload packet from laptop
       sendPacket(RELOAD_ACK_PACKET);
@@ -110,25 +147,18 @@ void handlePacket(Packet &packet) {
       reloadStartTime = millis();
       break;
     case RELOAD_ACK_PACKET:
-      if (!unacknowledgedShots.empty()) {
-        for (const auto& shot : unacknowledgedShots) {
-          sendPacket(GUN_PACKET, shot);
-        }
-      }
       unacknowledgedShots.clear();
       reloadMag();
       reloadInProgress = false;
       reloadStartTime = 0;
       break;
     case STATE_PACKET:
-      sendPacket(STATE_ACK_PACKET, 0, packet.remainingBullets);
-      pendingRemainingBullets = packet.remainingBullets;
-      stateUpdateInProgress = true;
+      updatePendingState(packet.shotID, packet.remainingBullets);
+      sendPacket(STATE_ACK_PACKET);
       stateUpdateStartTime = millis();
       break;
     case STATE_ACK_PACKET:
-      remainingBullets = pendingRemainingBullets;
-      stateUpdateInProgress = false;
+      applyPendingState();
       stateUpdateStartTime = 0;
   }
 }
@@ -136,10 +166,9 @@ void handlePacket(Packet &packet) {
 
 void setup() {
   Serial.begin(115200);
-  // pinMode(BUTTON, INPUT);
-  // pinMode(LASER, OUTPUT);
   IrSender.begin(IR_PIN);
   pixels.begin();
+  initializePendingState();
   reloadMag();
   mpuSetup();
 }
@@ -177,10 +206,28 @@ void loop() {
     // Handle resending of unacknowledged shots
     if (!unacknowledgedShots.empty() && currMillis - lastGunShotTime >= responseTimeout) {
       uint8_t shotToResend = *unacknowledgedShots.begin();
-      sendPacket(GUN_PACKET, shotToResend, remainingBullets);
+      sendPacketWithID(GUN_PACKET, shotToResend);
       lastGunShotTime = currMillis;
     }
   }
+}
+
+void sendPacketWithID(char packetType, uint8_t shotID) {
+  // Prepare packet
+  Packet packet;
+  packet.packetType = packetType;
+  packet.shotID = shotID;
+  packet.remainingBullets = pendingState.isPending ? pendingState.remainingBullets : remainingBullets;
+  memset(packet.padding, 0, sizeof(packet.padding));
+  crc8.restart();
+  crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
+  packet.crc = (uint8_t)crc8.calc();
+
+  // Send packet
+  Serial.write((byte *)&packet, sizeof(packet));
+
+  // Store packet
+  lastPacket = packet;
 }
 
 
@@ -206,12 +253,11 @@ void readButton(unsigned long currMillis) {
       if (buttonState == HIGH) {
         if (remainingBullets > 0) {
           IrSender.sendNEC(RED_ENCODING_VALUE, 32);
-          remainingBullets--;
-          sendPacket(GUN_PACKET, currShot, remainingBullets);
-          unacknowledgedShots.insert(currShot);
+          updatePendingState(currShot, --remainingBullets);
+          sendPacket(GUN_PACKET);
+          unacknowledgedShots.insert(pendingState.currShot);
           lastGunShotTime = currMillis;
-          currShot++;
-          updateLED(remainingBullets);
+          updateLED(pendingState.remainingBullets);
         }
       }
     }
@@ -271,19 +317,19 @@ void reloadMag() {
   currShot = 1;
   remainingBullets = magSize;
   for (int i = 0; i < remainingBullets; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 1, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
   }
   pixels.show();
 }
 
 void updateLED(int bulletToOff) {
-  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0));
+  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0, 0));
   pixels.show();
 }
 
 #define OFFSET_A_X -9.48
-#define OFFSET_A_Y 0.21
-#define OFFSET_A_Z 0.08
+#define OFFSET_A_Y 0.44
+#define OFFSET_A_Z -0.05
 
 #define OFFSET_G_X -0.07
 #define OFFSET_G_Y 0.00
