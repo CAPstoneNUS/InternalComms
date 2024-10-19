@@ -4,41 +4,6 @@ import threading
 from utils import writeCSV
 from collections import deque
 from socket import socket, AF_INET, SOCK_STREAM
-import csv
-import os
-
-
-def append_paired_data_to_csv(file_path, paired_data):
-    # Check if the CSV file already exists
-    file_exists = os.path.isfile(file_path)
-
-    # Define the fieldnames for the CSV (headers)
-    fieldnames = [
-        "type",
-        "gunAccX",
-        "gunAccY",
-        "gunAccZ",
-        "gunGyrX",
-        "gunGyrY",
-        "gunGyrZ",
-        "ankleAccX",
-        "ankleAccY",
-        "ankleAccZ",
-        "ankleGyrX",
-        "ankleGyrY",
-        "ankleGyrZ",
-    ]
-
-    # Open the CSV file in append mode
-    with open(file_path, mode="a", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-
-        # Write the header only if the file doesn't exist
-        if not file_exists:
-            writer.writeheader()
-
-        # Append the data to the CSV file
-        writer.writerow(paired_data)
 
 
 class RelayClient(threading.Thread):
@@ -77,7 +42,6 @@ class RelayClient(threading.Thread):
 
     def processAndSendData(self, client_data):
         try:
-            # if client_data["id"] in [self.gun_id, self.ankle_id]:
             if client_data["type"] == "M":
                 with self.lock:
                     if client_data["id"] == self.gun_id:
@@ -89,7 +53,7 @@ class RelayClient(threading.Thread):
                         paired_data = self.pairIMUData(
                             self.gun_buffer[0], self.ankle_buffer[0]
                         )
-                        append_paired_data_to_csv("paired_data.csv", paired_data)
+                        writeCSV("paired_data.csv", paired_data)
                         self.sendToUltra(paired_data)
             else:
                 del client_data["id"]

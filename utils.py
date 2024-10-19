@@ -24,36 +24,37 @@ def loadConfig():
         return yaml.safe_load(file)
 
 
-def writeCSV(data):
-    """
-    Function to process data and write it to CSV files.
+def writeCSV(file_path, paired_data):
+    # Check if the CSV file already exists
+    file_exists = os.path.isfile(file_path)
 
-    This function writes the input data to separate CSV files based on
-    the Beetle ID and packet type. It creates a new CSV file (if it doesn't exist)
-    and appends the data to the file as it arrives.
+    # Define the fieldnames for the CSV (headers)
+    fieldnames = [
+        "type",
+        "gunAccX",
+        "gunAccY",
+        "gunAccZ",
+        "gunGyrX",
+        "gunGyrY",
+        "gunGyrZ",
+        "ankleAccX",
+        "ankleAccY",
+        "ankleAccZ",
+        "ankleGyrX",
+        "ankleGyrY",
+        "ankleGyrZ",
+    ]
 
-    Args:
-        data (dict): A dictionary containing the data to be written to the CSV.
-    """
-    data_dir = "data"
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-    data_path = os.path.join(os.getcwd(), data_dir)
+    # Open the CSV file in append mode
+    with open(file_path, mode="a", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
 
-    id_and_type = f"{data['id']}_{data['type']}"
-    filename = os.path.join(data_path, f"{id_and_type}_data_stream.csv")
+        # Write the header only if the file doesn't exist
+        if not file_exists:
+            writer.writeheader()
 
-    # Open file in append mode using a context manager
-    with open(filename, "a", newline="") as csv_file:
-        csv_writer = csv.DictWriter(csv_file, fieldnames=data.keys())
-
-        # Only write the header if the file is empty
-        if csv_file.tell() == 0:
-            csv_writer.writeheader()
-
-        # Write the row of data
-        csv_writer.writerow(data)
-
+        # Append the data to the CSV file
+        writer.writerow(paired_data)
 
 def dataConsumer(config, data_queue):
     """
