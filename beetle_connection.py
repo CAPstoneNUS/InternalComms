@@ -286,7 +286,7 @@ class BeetleConnection:
         else:
             print("Client-server vest states match.")
 
-    def sendResetCommand(self):
+    def killBeetle(self):
         """
         Sends a reset command to the Beetle to reset the game state.
         """

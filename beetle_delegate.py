@@ -157,6 +157,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.logger.error(
                         "Corrupt packet limit reached. Force disconnecting..."
                     )
+                    self.beetle_connection.killBeetle()
                     self.beetle_connection.forceDisconnect()
                     self.corrupt_packet_count = 0
                 return

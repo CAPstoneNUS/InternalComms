@@ -11,7 +11,7 @@ def signal_handler(signal, frame, beetles):
     print("Ctrl+C detected. Sending reset signals to all Beetles...")
 
     for beetle in beetles:
-        beetle.sendResetCommand()
+        beetle.killBeetle()
 
     sys.exit(0)
 
