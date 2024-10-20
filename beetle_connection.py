@@ -226,15 +226,17 @@ class BeetleConnection:
             self.beetle_delegate.expected_gunshot_id = currShot
             self.beetle_delegate.successful_gunshots = {i for i in range(1, currShot)}
             syn_packet = struct.pack(
-                "b2B16s", ord(HS_SYN_PKT), currShot, remainingBullets, bytes(16)
+                "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.seq_num, currShot, remainingBullets
             )
+            self.beetle_delegate.seq_num += 1
         elif self.mac_address == self.config["device"]["beetle_3"]:  # vest
             shield, health = self.game_state.getShieldHealth()
             syn_packet = struct.pack(
-                "b2B16s", ord(HS_SYN_PKT), shield, health, bytes(16)
+                "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.seq_num, shield, health
             )
+            self.beetle_delegate.seq_num += 1
         else:
-            syn_packet = struct.pack("b18s", ord(HS_SYN_PKT), bytes(18))
+            syn_packet = struct.pack("b18x", ord(HS_SYN_PKT))
 
         crc = getCRC(syn_packet)
         syn_packet += struct.pack("B", crc)
@@ -246,10 +248,11 @@ class BeetleConnection:
         """
         if self._syn_flag:
             self.logger.info(f"<< Sending ACK...")
-            ack_packet = struct.pack("b18s", ord(HS_ACK_PKT), bytes(18))
+            ack_packet = struct.pack("bB17x", ord(HS_ACK_PKT), self.beetle_delegate.seq_num)
             crc = getCRC(ack_packet)
             ack_packet += struct.pack("B", crc)
             self.serial_characteristic.write(ack_packet)
+            self.beetle_delegate.seq_num += 1
 
     # ------------------------- Handling game state from above ------------------------- #
 
@@ -293,7 +296,7 @@ class BeetleConnection:
         self.logger.info(
             f"---------------------- KILLING BEETLE ----------------------"
         )
-        reset_packet = struct.pack("b18s", ord("J"), bytes(18))
+        reset_packet = struct.pack("b18x", ord("J"))
         crc = getCRC(reset_packet)
         reset_packet += struct.pack("B", crc)
         self.serial_characteristic.write(reset_packet)

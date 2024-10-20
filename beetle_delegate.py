@@ -89,6 +89,11 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.registered_vestshots = set()
         self.unacknowledged_vestshots = set()
 
+        # Sequence numbers
+        self._seq_num = 0
+        self._expected_seq_num = 0
+        self._last_packet = None
+
         # Counters
         self.frag_packet_count = 0
         self.corrupt_packet_count = 0
@@ -164,11 +169,25 @@ class BeetleDelegate(btle.DefaultDelegate):
 
             payload = packet[1:-1]
 
-            # Handle packet based on type
+            # IMU data stream (does NOT handle corrupted or dropped packets)
+            if packet_type == IMU_DATA_PKT:
+                self.handleIMUPacket(payload)
+                continue
+
+            # Sequence number handling
+            seq_num, payload = struct.unpack("B", payload[:1])[0], payload[1:]
+            if seq_num != self._expected_seq_num:
+                self.logger.error(
+                    f"Sequence number mismatch. Expected {self._expected_seq_num} but got {seq_num} instead."
+                )
+                self.sendNAKPacket(self._expected_seq_num)
+                return
+
+            self._expected_seq_num += 1
+
+            # Packet handling
             if packet_type == HS_SYNACK_PKT:
                 self.handleSYNACKPacket()
-            elif packet_type == IMU_DATA_PKT:
-                self.handleIMUPacket(payload)
             elif packet_type == GUN_PKT:
                 self.handleGunPacket(payload)
             elif packet_type == GUN_ACK_PKT:
@@ -224,16 +243,12 @@ class BeetleDelegate(btle.DefaultDelegate):
                 self.RESEND_PKT_TIMEOUT, self.handlePacketTimeout, args=[packet, flag]
             ).start()
 
-    def sendLastPacket(self):
-        self.logger.info("<< Sending last packet...")
-        self.beetle_connection.writeCharacteristic(self.last_packet)
-
-    def sendNAKPacket(self):
+    def sendNAKPacket(self, seq_num):
         """
         Sends a retransmission request for the corrupted packet.
         """
-        self.logger.info(f"<< Sending NAK...")
-        nak_packet = struct.pack("<b18x", ord(NAK_PKT))
+        self.logger.info(f"<< Sending NAK for seq_num {seq_num}...")
+        nak_packet = struct.pack("<bB17x", ord(NAK_PKT), seq_num)
         crc = getCRC(nak_packet)
         nak_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(nak_packet)
@@ -246,7 +261,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.logger.warning(">> Duplicate SYN-ACK received. Dropping packet...")
             return
         self.logger.info(">> SYN-ACK received.")
-        self.beetle_connection.ack_flag = True
+        self.beetle_connection.ack_flag = True  # allows doHandshake() to send ACK
 
     # ---------------------------- IMU ---------------------------- #
 
@@ -302,9 +317,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         self._gun_state_change_in_progress = True
         self.logger.info(f"<< Sending GUN STATE packet...")
-        gun_packet = struct.pack(
-            "b2B16s", ord(STATE_PKT), 7 - bullets, bullets, bytes(16)
-        )
+        gun_packet = struct.pack("b2B16x", ord(STATE_PKT), 7 - bullets, bullets)
         crc = getCRC(gun_packet)
         gun_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(gun_packet)
@@ -347,7 +360,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         self._vest_state_change_in_progress = True
         self.logger.info(f"<< Sending VEST STATE packet...")
-        vest_packet = struct.pack("<b2B16s", ord(STATE_PKT), shield, health, bytes(16))
+        vest_packet = struct.pack("<b2B16x", ord(STATE_PKT), shield, health)
         crc = getCRC(vest_packet)
         vest_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(vest_packet)
@@ -399,7 +412,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             return
 
         # FIXME: Send NAK if a shot is skipped and return
-        shotID, remainingBullets = struct.unpack("<2B16x", data)
+        shotID, remainingBullets = struct.unpack("<2B15x", data)
         if shotID != self._expected_gunshot_id:
             self.logger.warning(
                 f">> Skipped Shot ID {self._expected_gunshot_id} and got {shotID} instead."
@@ -433,11 +446,12 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         self.logger.info(f"<< Sending GUN SYN-ACK for Shot ID {shotID}...")
         synack_packet = struct.pack(
-            "<b2B16x", ord(GUN_ACK_PKT), shotID, remainingBullets
+            "<b3B15x", ord(GUN_ACK_PKT), self.seq_num, shotID, remainingBullets
         )
         crc = getCRC(synack_packet)
         synack_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(synack_packet)
+        self.seq_num += 1
         # Timer(
         #     3,
         #     self.handleGunTimeout,
@@ -452,14 +466,12 @@ class BeetleDelegate(btle.DefaultDelegate):
         Args:
             data (bytes): The gun shot acknowledgement packet.
         """
-        shotID, remainingBullets = struct.unpack("<2B16x", data)
+        shotID, remainingBullets = struct.unpack("<2B15x", data)
         if shotID in self._unacknowledged_gunshots:
             self._gunshot_in_progress = False
             self._unacknowledged_gunshots.remove(shotID)
             self._successful_gunshots.add(shotID)
             self.game_state.applyGunState(bullets=remainingBullets)
-            self.checkForMissingShots(shotID)
-            print("Adding gun trigger to sender queue")
             self.data_queue.put(
                 {
                     "id": self.beetle_id,
@@ -486,21 +498,6 @@ class BeetleDelegate(btle.DefaultDelegate):
                 f">> Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
             )
 
-    def checkForMissingShots(self, curr_shot):
-        """
-        Check that all Shot IDs up to the current shot have been acknowledged.
-        If not, send retransmission requests for the missing shots.
-
-        Args:
-            curr_shot (int): The Shot ID of the current gun shot.
-        """
-        for shot in range(1, curr_shot):
-            if shot not in self._successful_gunshots:
-                self.logger.warning(
-                    f"Missing Shot ID: {shot}. Sending retransmission request."
-                )
-                self.sendGunNAK(shot)
-
     def sendGunNAK(self, shotID):
         """
         Sends the retransmission request for the missing Shot ID.
@@ -509,7 +506,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             shotID (int): The Shot ID of the missing gun shot.
         """
         self.logger.info(f"<< Sending GUN NAK for Shot ID {shotID}...")
-        rt_packet = struct.pack("<bB17s", ord(GUN_NAK_PKT), shotID, bytes(17))
+        rt_packet = struct.pack("<bB17x", ord(GUN_NAK_PKT), shotID)
         crc = getCRC(rt_packet)
         rt_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(rt_packet)
@@ -665,3 +662,11 @@ class BeetleDelegate(btle.DefaultDelegate):
     @unacknowledged_gunshots.setter
     def unacknowledged_gunshots(self, value):
         self._unacknowledged_gunshots = value
+
+    @property
+    def seq_num(self):
+        return self._seq_num
+
+    @seq_num.setter
+    def seq_num(self, value):
+        self._seq_num = value
