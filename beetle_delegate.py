@@ -69,7 +69,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.data_queue = data_queue
         self.game_state = game_state
         self.buffer = deque()
-        self._last_packet = None
 
         # Transmission speed stats
         self.start_time = time.time()
@@ -89,10 +88,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.registered_vestshots = set()
         self.unacknowledged_vestshots = set()
 
-        # Sequence numbers
+        # Sequencing
         self._seq_num = 0
         self._expected_seq_num = 0
-        self._last_packet = None
 
         # Counters
         self.frag_packet_count = 0
@@ -630,14 +628,6 @@ class BeetleDelegate(btle.DefaultDelegate):
     @action_in_progress.setter
     def action_in_progress(self, value):
         self._action_in_progress = value
-
-    @property
-    def last_packet(self):
-        return self._last_packet
-
-    @last_packet.setter
-    def last_packet(self, value):
-        self._last_packet = value
 
     @property
     def expected_gunshot_id(self):

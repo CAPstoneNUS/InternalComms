@@ -302,7 +302,6 @@ class BeetleConnection:
         self.serial_characteristic.write(reset_packet)
 
     def writeCharacteristic(self, packet):
-        self.beetle_delegate.last_packet = packet
         self.serial_characteristic.write(packet)
 
     @property
