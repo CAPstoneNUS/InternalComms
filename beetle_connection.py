@@ -228,19 +228,26 @@ class BeetleConnection:
             syn_packet = struct.pack(
                 "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.seq_num, currShot, remainingBullets
             )
+            crc = getCRC(syn_packet)
+            syn_packet += struct.pack("B", crc)
+            self.serial_characteristic.write(syn_packet)
+            self.beetle_delegate.sent_packets = syn_packet
             self.beetle_delegate.seq_num += 1
         elif self.mac_address == self.config["device"]["beetle_3"]:  # vest
             shield, health = self.game_state.getShieldHealth()
             syn_packet = struct.pack(
                 "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.seq_num, shield, health
             )
+            crc = getCRC(syn_packet)
+            syn_packet += struct.pack("B", crc)
+            self.serial_characteristic.write(syn_packet)
+            self.beetle_delegate.sent_packets = syn_packet
             self.beetle_delegate.seq_num += 1
         else:
             syn_packet = struct.pack("b18x", ord(HS_SYN_PKT))
-
-        crc = getCRC(syn_packet)
-        syn_packet += struct.pack("B", crc)
-        self.serial_characteristic.write(syn_packet)
+            crc = getCRC(syn_packet)
+            syn_packet += struct.pack("B", crc)
+            self.serial_characteristic.write(syn_packet)
 
     def sendACKPacket(self):
         """
