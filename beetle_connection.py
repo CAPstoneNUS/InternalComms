@@ -5,6 +5,7 @@ import random
 from enum import Enum
 from beetle_delegate import BeetleDelegate
 from utils import getCRC
+from threading import Timer
 
 HS_SYN_PKT = "S"
 HS_ACK_PKT = "A"
@@ -70,6 +71,7 @@ class BeetleConnection:
 
         self.SERVICE_UUID = config["uuid"]["service"]
         self.CHARACTERISTIC_UUID = config["uuid"]["characteristic"]
+        self.RESPONSE_TIMEOUT = config["time"]["response_timeout"]
         self.HANDSHAKE_INTERVAL = config["time"]["handshake_interval"]
         self.RECONNECTION_INTERVAL = config["time"]["reconnection_interval"]
         self.MAX_NOTIF_WAIT_TIME = config["time"]["max_notif_wait_time"]
@@ -124,9 +126,7 @@ class BeetleConnection:
 
                     # ---------------------------- Data from Beetle ---------------------------- #
                     if not self.beetle.waitForNotifications(self.MAX_NOTIF_WAIT_TIME):
-                        self.logger.error(
-                            f"Failed to receive notifications. Disconnecting..."
-                        )
+                        self.logger.error("Failed to receive notifs. Disconnecting...")
                         self.forceDisconnect()
 
             except btle.BTLEDisconnectError:
@@ -154,7 +154,7 @@ class BeetleConnection:
         try:
             self.beetle = btle.Peripheral()
             self.beetle.connect(self.mac_address)
-            self.logger.info(f"Connected!")
+            self.logger.info("Connected!")
 
             self.serial_service = self.beetle.getServiceByUUID(self.SERVICE_UUID)
             self.serial_characteristic = self.serial_service.getCharacteristics(
@@ -187,19 +187,19 @@ class BeetleConnection:
             if not self._syn_flag:
                 self.sendSYNPacket()
                 if not self.beetle.waitForNotifications(self.HANDSHAKE_INTERVAL):
-                    self.logger.error(f"Failed to receive SYN.")
+                    self.logger.error("Failed to receive SYN.")
                     return False
                 self._syn_flag = True
 
             if self._ack_flag:
                 self.sendACKPacket()
-                self.logger.info(f"Handshake successful!")
+                self.logger.info("Handshake successful!")
                 return True
 
             return False
 
         except btle.BTLEDisconnectError:
-            self.logger.error(f"Disconnected during handshake.")
+            self.logger.error("Disconnected during handshake.")
             return False
 
     def forceDisconnect(self):
@@ -218,36 +218,32 @@ class BeetleConnection:
         Sends a SYN packet to the Beetle as part of the handshake process.
         """
         self.logger.info(f"<< Sending SYN...")
+        self.beetle_delegate.resetSeqNum()
 
         # Sync game state
         if self.mac_address == self.config["device"]["beetle_1"]:  # gun
             currShot = self.game_state.getCurrShot()
             remainingBullets = self.game_state.getRemainingBullets()
             self.beetle_delegate.expected_gunshot_id = currShot
-            self.beetle_delegate.successful_gunshots = {i for i in range(1, currShot)}
+            self.beetle_delegate._shots_fired = {i for i in range(1, currShot)}
             syn_packet = struct.pack(
-                "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.seq_num, currShot, remainingBullets
+                "b3B15x",
+                ord(HS_SYN_PKT),
+                self.beetle_delegate.sqn,
+                currShot,
+                remainingBullets,
             )
-            crc = getCRC(syn_packet)
-            syn_packet += struct.pack("B", crc)
-            self.serial_characteristic.write(syn_packet)
-            self.beetle_delegate.sent_packets = syn_packet
-            self.beetle_delegate.seq_num += 1
         elif self.mac_address == self.config["device"]["beetle_3"]:  # vest
             shield, health = self.game_state.getShieldHealth()
             syn_packet = struct.pack(
-                "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.seq_num, shield, health
+                "b3B15x", ord(HS_SYN_PKT), self.beetle_delegate.sqn, shield, health
             )
-            crc = getCRC(syn_packet)
-            syn_packet += struct.pack("B", crc)
-            self.serial_characteristic.write(syn_packet)
-            self.beetle_delegate.sent_packets = syn_packet
-            self.beetle_delegate.seq_num += 1
         else:
             syn_packet = struct.pack("b18x", ord(HS_SYN_PKT))
-            crc = getCRC(syn_packet)
-            syn_packet += struct.pack("B", crc)
-            self.serial_characteristic.write(syn_packet)
+
+        crc = getCRC(syn_packet)
+        syn_packet += struct.pack("B", crc)
+        self.serial_characteristic.write(syn_packet)
 
     def sendACKPacket(self):
         """
@@ -255,11 +251,12 @@ class BeetleConnection:
         """
         if self._syn_flag:
             self.logger.info(f"<< Sending ACK...")
-            ack_packet = struct.pack("bB17x", ord(HS_ACK_PKT), self.beetle_delegate.seq_num)
+            ack_packet = struct.pack(
+                "bB17x", ord(HS_ACK_PKT), self.beetle_delegate.sqn
+            )
             crc = getCRC(ack_packet)
             ack_packet += struct.pack("B", crc)
             self.serial_characteristic.write(ack_packet)
-            self.beetle_delegate.seq_num += 1
 
     # ------------------------- Handling game state from above ------------------------- #
 

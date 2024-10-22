@@ -7,34 +7,36 @@
 #include <set>
 #include "CRC8.h"
 
+#define PACKET_BUFFER_SIZE 16
+
 #define SYN_PACKET 'S'
+#define KILL_PACKET 'J'
 #define ACK_PACKET 'A'  // For handshaking
-// #define NAK_PACKET 'L'
+#define NAK_PACKET 'L'
 #define IMU_PACKET 'M'
 #define GUN_PACKET 'G'
-#define GUN_NAK_PACKET 'T'
-#define GUN_ACK_PACKET 'X'     // For gunshot SYN-ACK from laptop
+#define GUN_ACK_PACKET 'X'  // For gunshot SYN-ACK from laptop
 #define RELOAD_PACKET 'R'
-#define RELOAD_ACK_PACKET 'Y'  // For reload ACK from laptop
+#define RELOAD_ACK_PACKET 'Y'
 #define STATE_PACKET 'D'
 #define STATE_ACK_PACKET 'U'
 
 CRC8 crc8;
 Adafruit_MPU6050 mpu;
 
+const uint8_t MAG_SIZE = 6;
+const unsigned long IMU_INTERVAL = 50;
+const unsigned long RESPONSE_TIMEOUT = 1000;
+
+uint8_t calculatedCRC;
 uint8_t currShot = 1;
-uint8_t pendingCurrShot = 1;
-const uint8_t magSize = 6;
-uint8_t remainingBullets = magSize;
-uint8_t pendingRemainingBullets = magSize;
-std::set<uint8_t> unacknowledgedShots;
+uint8_t remainingBullets = MAG_SIZE;
+// std::set<uint8_t> unacknowledgedShots;
 bool hasHandshake = false;
-bool reloadInProgress = false;
-bool stateUpdateInProgress = false;
-unsigned long reloadStartTime = 0;
-unsigned long stateUpdateStartTime = 0;
 unsigned long lastGunShotTime = 0;
-unsigned long responseTimeout = 1000; // 1s timeout
+uint8_t sqn = 0;
+uint8_t expectedSeqNum = 0;
+uint8_t currBufferIdx = 0;
 
 // #define LED 3
 #define IR_PIN 3
@@ -56,9 +58,10 @@ bool buttonPressed = false;  // To track if the button was pressed
 
 struct Packet {
   char packetType;
-  uint8_t shotID; // AKA currShot
+  uint8_t sqn;
+  uint8_t shotID;  // AKA currShot, also doubles as seq num for NAK pkt
   uint8_t remainingBullets;
-  byte padding[16];
+  byte padding[15];
   uint8_t crc;
 };
 
@@ -73,7 +76,7 @@ struct PendingState {
 void initializePendingState() {
   pendingState.currShot = currShot;
   pendingState.remainingBullets = remainingBullets;
-  pendingState.isPending = false; 
+  pendingState.isPending = false;
 }
 
 void updatePendingState(uint8_t currShot, uint8_t remainingBullets) {
@@ -92,13 +95,15 @@ void applyPendingState() {
 
 // --------------------------------------------------------- //
 
-Packet lastPacket;
+Packet packet;
+Packet packets[PACKET_BUFFER_SIZE];
 
 void sendPacket(char packetType) {
   // Prepare packet
   Packet packet;
   packet.packetType = packetType;
-  packet.shotID = pendingState.isPending ? pendingState.currShot : currShot; // AKA currShot sync variable for reconnections
+  packet.sqn = sqn;
+  packet.shotID = pendingState.isPending ? pendingState.currShot : currShot;  // AKA currShot sync variable for reconnections
   packet.remainingBullets = pendingState.isPending ? pendingState.remainingBullets : remainingBullets;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
@@ -108,58 +113,48 @@ void sendPacket(char packetType) {
   // Send packet
   Serial.write((byte *)&packet, sizeof(packet));
 
-  // Store packet
-  lastPacket = packet;
+  // Store packet if not ACK (don't track sequencing for HS packets)
+  if (packetType != ACK_PACKET) {
+    storePacket(packet);
+  }
+}
+
+void storePacket(Packet packet) {
+  packets[currBufferIdx] = packet;
+  currBufferIdx = (currBufferIdx + 1) % PACKET_BUFFER_SIZE;  // circular buffer
+}
+
+Packet retreivePacket(uint8_t sqn) {
+  int idx = sqn % PACKET_BUFFER_SIZE;
+  return packets[idx];
 }
 
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
-    case SYN_PACKET:
-      // sync game state upon reconnection
-      updatePendingState(packet.shotID, packet.remainingBullets);
-      sendPacket(ACK_PACKET);
-      break;
-    case ACK_PACKET:
-      applyPendingState();
-      for (int i = 1; i <= currShot; i++) {
-        updateLED(7-i);
-      }
-      hasHandshake = true;
-      break;
-    // case NAK_PACKET:
-    //   Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
-    //   break;
-    case GUN_NAK_PACKET:
-      if (std::find(unacknowledgedShots.begin(), unacknowledgedShots.end(), packet.shotID) != unacknowledgedShots.end()) {
-        sendPacketWithID(GUN_PACKET, packet.shotID);
-      }
-      // sendPacketWithID(GUN_PACKET, packet.shotID); // honestly not correct, need to follow the one above this but it hangs in a beetle-laptop packet loop
+    case NAK_PACKET:
+      // packet.sqn == laptops expected seq num
+      Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
     case GUN_ACK_PACKET:
       applyPendingState();
-      unacknowledgedShots.erase(packet.shotID);
-      sendPacket(GUN_ACK_PACKET);
+      // unacknowledgedShots.erase(packet.shotID);
       currShot++;
+      sqn++;
       break;
-    case RELOAD_PACKET: // recvs reload packet from laptop
-      sendPacket(RELOAD_ACK_PACKET);
-      reloadInProgress = true;
-      reloadStartTime = millis();
-      break;
-    case RELOAD_ACK_PACKET:
-      unacknowledgedShots.clear();
+    case RELOAD_PACKET:  // recvs reload packet from laptop
+      // unacknowledgedShots.clear();
       reloadMag();
-      reloadInProgress = false;
-      reloadStartTime = 0;
+      sendPacket(RELOAD_ACK_PACKET);
+      expectedSeqNum++;
       break;
     case STATE_PACKET:
       updatePendingState(packet.shotID, packet.remainingBullets);
       sendPacket(STATE_ACK_PACKET);
-      stateUpdateStartTime = millis();
-      break;
-    case STATE_ACK_PACKET:
       applyPendingState();
-      stateUpdateStartTime = 0;
+      expectedSeqNum++;
+      break;
+    case KILL_PACKET:
+      asm volatile("jmp 0");
   }
 }
 
@@ -171,25 +166,47 @@ void setup() {
   initializePendingState();
   reloadMag();
   mpuSetup();
+  sqn = 0;
+  expectedSeqNum = 0;
+  currBufferIdx = 0;
 }
 
 int buttonState = 0;
-unsigned long previousIMUMillis = 0;    // Variable to store the last time sendIMUData() was executed
-const unsigned long IMUInterval = 50;  // Interval in milliseconds (50 ms)
-
+unsigned long previousIMUMillis = 0;   // Variable to store the last time sendIMUData() was executed
 
 void loop() {
   // Check if a packet has been received on the serial port
   if (Serial.available() >= sizeof(Packet)) {
-    Packet receivedPacket;
-    Serial.readBytes((byte *)&receivedPacket, sizeof(Packet));
+    Serial.readBytes((byte *)&packet, sizeof(Packet));
 
     crc8.restart();
-    crc8.add((uint8_t *)&receivedPacket, sizeof(Packet) - sizeof(receivedPacket.crc));
-    uint8_t calculatedCRC = (uint8_t)crc8.calc();
+    crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
+    calculatedCRC = (uint8_t)crc8.calc();
 
-    if (calculatedCRC == receivedPacket.crc) {
-      handlePacket(receivedPacket);
+    if (calculatedCRC == packet.crc) {
+      if (!hasHandshake) {
+        switch (packet.packetType) {
+          case SYN_PACKET:
+            sqn = 0;
+            expectedSeqNum = 0;
+            updatePendingState(packet.shotID, packet.remainingBullets);
+            sendPacket(ACK_PACKET);
+            break;
+          case ACK_PACKET:
+            applyPendingState();
+            for (int i = 1; i <= currShot; i++) {  // pendingState applied to global currShot
+              updateLED(7 - i);
+            }
+            hasHandshake = true;
+            break;
+        }
+      } else { // has handshake
+        if (expectedSeqNum == packet.sqn) {
+          handlePacket(packet);
+        } else {
+          sendNAKPacket();
+        }
+      }
     }
   }
 
@@ -197,27 +214,27 @@ void loop() {
     unsigned long currMillis = millis();
     readButton(currMillis);
 
-    // Check if 100 ms has passed since the last time sendIMUData() was called
-    if (currMillis - previousIMUMillis >= IMUInterval) {
-      previousIMUMillis = currMillis;  // Save the current time
+    // Send IMU data every 50ms
+    if (currMillis - previousIMUMillis >= IMU_INTERVAL) {
+      previousIMUMillis = currMillis;
       sendIMUData();
     }
 
-    // Handle resending of unacknowledged shots
-    if (!unacknowledgedShots.empty() && currMillis - lastGunShotTime >= responseTimeout) {
-      uint8_t shotToResend = *unacknowledgedShots.begin();
-      sendPacketWithID(GUN_PACKET, shotToResend);
-      lastGunShotTime = currMillis;
-    }
+    // // Handle resending of unacknowledged shots
+    // if (!unacknowledgedShots.empty() && currMillis - lastGunShotTime >= RESPONSE_TIMEOUT) {
+    //   Serial.write((byte *)&(retreivePacket(sqn - 1)), sizeof(Packet));
+    //   // uint8_t shotToResend = *unacknowledgedShots.begin();
+    //   // sendPacketWithID(GUN_PACKET, shotToResend);
+    //   lastGunShotTime = currMillis;
+    // }
   }
 }
 
-void sendPacketWithID(char packetType, uint8_t shotID) {
+void sendNAKPacket() {
   // Prepare packet
-  Packet packet;
-  packet.packetType = packetType;
-  packet.shotID = shotID;
-  packet.remainingBullets = pendingState.isPending ? pendingState.remainingBullets : remainingBullets;
+  packet.packetType = NAK_PACKET;
+  packet.sqn = sqn;
+  packet.shotID = expectedSeqNum;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
   crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
@@ -225,13 +242,9 @@ void sendPacketWithID(char packetType, uint8_t shotID) {
 
   // Send packet
   Serial.write((byte *)&packet, sizeof(packet));
-
-  // Store packet
-  lastPacket = packet;
 }
 
-
-const unsigned long debounceDelay = 50; // Debounce time in milliseconds
+const unsigned long debounceDelay = 50;  // Debounce time in milliseconds
 unsigned long lastDebounceTime = 0;
 int lastButtonState = HIGH;
 
@@ -255,7 +268,7 @@ void readButton(unsigned long currMillis) {
           IrSender.sendNEC(RED_ENCODING_VALUE, 32);
           updatePendingState(currShot, --remainingBullets);
           sendPacket(GUN_PACKET);
-          unacknowledgedShots.insert(pendingState.currShot);
+          // unacknowledgedShots.insert(pendingState.currShot);
           lastGunShotTime = currMillis;
           updateLED(pendingState.remainingBullets);
         }
@@ -315,7 +328,7 @@ void sendIMUData() {
 
 void reloadMag() {
   currShot = 1;
-  remainingBullets = magSize;
+  remainingBullets = MAG_SIZE;
   for (int i = 0; i < remainingBullets; i++) {
     pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
   }

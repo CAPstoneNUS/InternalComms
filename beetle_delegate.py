@@ -11,9 +11,9 @@ from utils import getCRC, getTransmissionSpeed, logPacketStats
 HS_SYNACK_PKT = "A"
 IMU_DATA_PKT = "M"
 GUN_PKT = "G"
+GUN_ACK_PKT = "X"
 RELOAD_PKT = "R"
 VESTSHOT_PKT = "V"
-GUN_ACK_PKT = "X"
 VESTSHOT_ACK_PKT = "Z"
 RELOAD_SYNACK_PKT = "Y"
 NAK_PKT = "L"
@@ -42,9 +42,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         total_window_data (int): Total size of data received in bytes. Reset everytime stats are displayed.
         total_data (int): Total size of data received in bytes since start.
 
-        _unacknowledged_gunshots (set): Set to temporarily store Shot IDs with pending ACKs.
-        _successful_gunshots (set): Set to store Shot IDs that have been successfully acknowledged.
-
         frag_packet_count (int): Count of fragmented packets received.
         corrupt_packet_count (int): Count of corrupted packets received.
         dropped_packet_count (int): Count of packets dropped.
@@ -52,7 +49,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         MAX_BUFFER_SIZE (int): Maximum buffer size for storing incoming data.
         MAX_QUEUE_SIZE (int): Maximum queue size for storing IMU data.
         PACKET_SIZE (int): Size of each data packet.
-        RESEND_PKT_TIMEOUT (int): Timeout duration for gun shot acknowledgements.
         STATS_LOG_INTERVAL (int): Interval for displaying transmission speed stats.
     """
 
@@ -75,20 +71,17 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.total_data = 0
 
         # Gun handling
-        self._gunshot_in_progress = False
         self._gun_state_change_in_progress = False
-        self._successful_gunshots = set()
-        self._unacknowledged_gunshots = set()
+        self._shots_fired = set()
         self._expected_gunshot_id = 1
 
         # Vest handling
         self._vestshot_in_progress = False
         self._vest_state_change_in_progress = False
         self.registered_vestshots = set()
-        self.unacknowledged_vestshots = set()
 
         # Sequencing
-        self._seq_num = 0
+        self._sqn = 0  # sequence number for packets sent to Beetle
         self._expected_seq_num = 0
         self._sent_packets = []
 
@@ -102,11 +95,12 @@ class BeetleDelegate(btle.DefaultDelegate):
         self._action_in_progress = False
 
         # Configuration parameters
+        self.player_id = self.config["game"]["player_id"]
         self.MAG_SIZE = self.config["storage"]["mag_size"]
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
-        self.RESEND_PKT_TIMEOUT = self.config["time"]["resend_pkt_timeout"]
+        self.RESPONSE_TIMEOUT = self.config["time"]["response_timeout"]
         self.STATS_LOG_INTERVAL = config["time"]["stats_log_interval"]
 
     def handleNotification(self, cHandle, data):
@@ -150,7 +144,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
             # Check CRC
             if calculated_crc != true_crc:
-                ### TODO figure out NAK later
                 self.logger.error("CRC mismatch. Dropping packet...")
                 # self.logger.error("Packet corrupted. Requesting retransmission...")
                 # self.sendNAKPacket()
@@ -170,41 +163,47 @@ class BeetleDelegate(btle.DefaultDelegate):
             # IMU data stream (does NOT handle corrupted or dropped packets)
             if packet_type == IMU_DATA_PKT:
                 self.handleIMUPacket(payload)
-                continue
+                continue  # so the expected sequence number does NOT get updated
 
             # Sequence number handling
-            seq_num, payload = struct.unpack("B", payload[:1])[0], payload[1:]
-            if seq_num != self._expected_seq_num:
+            beetle_seq_num, payload = struct.unpack("B", payload[:1])[0], payload[1:]
+            self.logger.info(
+                f"Beetle sent sequence number {beetle_seq_num}. Expected sequence number is {self._expected_seq_num}."
+            )
+            if beetle_seq_num != self._expected_seq_num:
                 self.logger.error(
-                    f"Sequence number mismatch. Expected {self._expected_seq_num} but got {seq_num} instead."
+                    f"Sequence number mismatch. Expected {self._expected_seq_num} but got {beetle_seq_num} instead."
                 )
                 self.sendNAKPacket()
                 return
 
-            # Only increment expected sequence number if packet is not corrupted and is in order
-            self._expected_seq_num += 1
-
             # Packet handling
             if packet_type == HS_SYNACK_PKT:
                 self.handleSYNACKPacket()
+                return  # so the expected sequence number does NOT get updated
             elif packet_type == GUN_PKT:
                 self.handleGunPacket(payload)
             elif packet_type == GUN_ACK_PKT:
                 self.handleGunACK(payload)
             elif packet_type == RELOAD_SYNACK_PKT:
-                self.handleReloadSYNACK()
+                self.handleReloadACK()
             elif packet_type == VESTSHOT_PKT:
                 self.handleVestPacket(payload)
             elif packet_type == VESTSHOT_ACK_PKT:
                 self.handleVestACK(payload)
             elif packet_type == GUNSTATE_SYNACK_PKT:
-                self.handleGunStateSYNACK(payload)
+                self.handleGunStateACK(payload)
             elif packet_type == VESTSTATE_SYNACK_PKT:
-                self.handleVestStateSYNACK(payload)
+                self.handleVestStateACK(payload)
             elif packet_type == NAK_PKT:
                 self.handleNAKPacket(payload)
             else:
                 self.logger.error(f"Unknown packet type: {packet_type}")
+
+            self._expected_seq_num += 1
+            self.logger.info(
+                f"Expected sequence number updated to {self._expected_seq_num}."
+            )
 
         # Check for fragmented packets
         if len(self.buffer) > 0:
@@ -233,25 +232,27 @@ class BeetleDelegate(btle.DefaultDelegate):
         #     self.start_time = time.time()
         #     self.total_window_data = 0
 
-    # ---------------------------- HS, Timeouts & NAKs ---------------------------- #
+    # ---------------------------- SN, HS, Timeouts & NAKs ---------------------------- #
+
+    def resetSeqNum(self):
+        self._sqn = 0
+        self._expected_seq_num = 0
 
     def handlePacketTimeout(self, flag):
         if flag:
             self.logger.warning(f"Packet timeout. Resending last packet...")
             self.beetle_connection.writeCharacteristic(self._sent_packets[-1])
             Timer(
-                self.RESEND_PKT_TIMEOUT,
+                self.RESPONSE_TIMEOUT,
                 self.handlePacketTimeout,
                 args=[flag],
             ).start()
 
     def handleNAKPacket(self, data):
         self.logger.warning(">> NAK received.")
-        requested_seq_num = struct.unpack("B", data[:1])[0]
-        self.logger.warning(f"<< Resending requested packet {requested_seq_num}...")
-        self.beetle_connection.writeCharacteristic(
-            self._sent_packets[requested_seq_num]
-        )
+        requested_sqn = struct.unpack("B", data[:1])[0]
+        self.logger.warning(f"<< Resending requested packet {requested_sqn}...")
+        self.beetle_connection.writeCharacteristic(self._sent_packets[requested_sqn])
 
     def sendNAKPacket(self):
         """
@@ -278,17 +279,12 @@ class BeetleDelegate(btle.DefaultDelegate):
     # ---------------------------- IMU ---------------------------- #
 
     def handleIMUPacket(self, data):
-        """
-        Puts the IMU data packet into the shared data queue.
-
-        Args:
-            data (bytes): The IMU data packet.
-        """
         unpacked_data = struct.unpack("<6h6x", data)
         accX, accY, accZ, gyrX, gyrY, gyrZ = unpacked_data
         imu_data = {
             "id": self.beetle_id,
             "type": IMU_DATA_PKT,
+            "playerID": self.player_id,
             "accX": accX,
             "accY": accY,
             "accZ": accZ,
@@ -318,31 +314,29 @@ class BeetleDelegate(btle.DefaultDelegate):
         gun_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(gun_packet)
         Timer(
-            self.RESEND_PKT_TIMEOUT,
+            self.RESPONSE_TIMEOUT,
             self.handlePacketTimeout,
             args=[self._gun_state_change_in_progress],
         ).start()
 
-    def handleGunStateSYNACK(self, data):
-        """
-        Handles the SYN-ACK packet for the STATE packet.
-        """
+    def handleGunStateACK(self, data):
         self._gun_state_change_in_progress = False
         self.logger.info(">> Received GUN STATE SYN-ACK. Applying state...")
         _, remainingBullets = struct.unpack("<2B16x", data)
         print(f"<<<<<< RECEIVED {remainingBullets} BULLETS FROM ARDUINO >>>>>>")
         self.game_state.applyGunState(bullets=remainingBullets)
-        self.sendGunStateACK()
+        # self.sendGunStateACK()
+        self._sqn += 1
 
-    def sendGunStateACK(self):
-        """
-        Sends the GUN STATE ACK packet to the Beetle.
-        """
-        self.logger.info("<< Sending GUN STATE ACK...")
-        ack_packet = struct.pack("<b18x", ord(GUNSTATE_SYNACK_PKT))
-        crc = getCRC(ack_packet)
-        ack_packet += struct.pack("B", crc)
-        self.beetle_connection.writeCharacteristic(ack_packet)
+    # def sendGunStateACK(self):
+    # """
+    # Sends the GUN STATE ACK packet to the Beetle.
+    # """
+    # self.logger.info("<< Sending GUN STATE ACK...")
+    # ack_packet = struct.pack("<b18x", ord(GUNSTATE_SYNACK_PKT))
+    # crc = getCRC(ack_packet)
+    # ack_packet += struct.pack("B", crc)
+    # self.beetle_connection.writeCharacteristic(ack_packet)
 
     # ---------------------------- Vest State Handling ---------------------------- #
 
@@ -361,111 +355,45 @@ class BeetleDelegate(btle.DefaultDelegate):
         vest_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(vest_packet)
         Timer(
-            self.RESEND_PKT_TIMEOUT,
+            self.RESPONSE_TIMEOUT,
             self.handlePacketTimeout,
             args=[self._vest_state_change_in_progress],
         ).start()
 
-    def handleVestStateSYNACK(self, data):
-        """
-        Handles the SYN-ACK packet for the STATE packet.
-        """
+    def handleVestStateACK(self, data):
         self._vest_state_change_in_progress = False
         self.logger.info(">> Received VEST STATE SYN-ACK. Applying state...")
         shield, health = struct.unpack("<2B16x", data)
         print(f"<<<<<< RECEIVED {health} HEALTH FROM ARDUINO >>>>>>")
         print(f"<<<<<< RECEIVED {shield} SHIELD FROM ARDUINO >>>>>>")
         self.game_state.applyVestState(shield=shield, health=health)
-        self.sendVestStateACK()
+        # self.sendVestStateACK()
+        self._sqn += 1
 
-    def sendVestStateACK(self):
-        """
-        Sends the VEST STATE ACK packet to the Beetle.
-        """
-        self.logger.info("<< Sending VEST STATE ACK...")
-        ack_packet = struct.pack("<b18x", ord(VESTSTATE_SYNACK_PKT))
-        crc = getCRC(ack_packet)
-        ack_packet += struct.pack("B", crc)
-        self.beetle_connection.writeCharacteristic(ack_packet)
+    # def sendVestStateACK(self):
+    # """
+    # Sends the VEST STATE ACK packet to the Beetle.
+    # """
+    # self.logger.info("<< Sending VEST STATE ACK...")
+    # ack_packet = struct.pack("<b18x", ord(VESTSTATE_SYNACK_PKT))
+    # crc = getCRC(ack_packet)
+    # ack_packet += struct.pack("B", crc)
+    # self.beetle_connection.writeCharacteristic(ack_packet)
 
     # ---------------------------- Gun Handling ---------------------------- #
 
     def handleGunPacket(self, data):
-        """
-        Adds the Shot ID to the _unacknowledged_gunshots set() and sends the SYN-ACK packet.
-
-        Args:
-            data (bytes): The gun shot packet.
-        """
-        # FIXME: Drop attempted shots during a reload. May cause shotID mismatch since Arduino will increment
-        if self._action_in_progress:
-            self.logger.warning(
-                ">> Shot triggered while performing action. Dropping packet..."
-            )
-            self.logger.warning(
-                " ------------------ MISSING IMPLEMENTATION HERE ------------------ "
-            )
-            return
-
+        # FIXME handle action in progress?
         shotID, remainingBullets = struct.unpack("<2B15x", data)
-        if shotID != self._expected_gunshot_id:
-            self.logger.warning(
-                " ------------------ REMOVE THIS CODE ------------------ "
-            )
-            return
 
         # Handle gun shot
-        self._gunshot_in_progress = True
-        if shotID not in self._unacknowledged_gunshots:
-            self.logger.info(f">> Shot ID {shotID} received.")
-            self._unacknowledged_gunshots.add(shotID)
-            self.game_state.useBullet()
-            self.sendGunSYNACK(shotID, remainingBullets)
-        else:
-            self.logger.warning(
-                f">> Duplicate Shot ID received: {shotID}. Dropping packet..."
-            )
-
-    def sendGunSYNACK(self, shotID, remainingBullets):
-        """
-        Sends the SYN-ACK packet for the gun shot.
-
-        Args:
-            shotID (int): The Shot ID of the gun shot.
-        """
-        self.logger.info(f"<< Sending GUN SYN-ACK for Shot ID {shotID}...")
-        synack_packet = struct.pack(
-            "<b3B15x", ord(GUN_ACK_PKT), self.seq_num, shotID, remainingBullets
-        )
-        crc = getCRC(synack_packet)
-        synack_packet += struct.pack("B", crc)
-        self.beetle_connection.writeCharacteristic(synack_packet)
-        self._sent_packets.append(synack_packet)
-        self.seq_num += 1
-        Timer(
-            self.RESEND_PKT_TIMEOUT,
-            self.handlePacketTimeout,
-            args=[self._gunshot_in_progress],
-        )
-
-    def handleGunACK(self, data):
-        """
-        Appends the Shot ID to the _successful_gunshots list(), puts it
-        in the queue and removes it from _unacknowledged_gunshots set().
-
-        Args:
-            data (bytes): The gun shot acknowledgement packet.
-        """
-        shotID, remainingBullets = struct.unpack("<2B15x", data)
-        if shotID in self._unacknowledged_gunshots:
-            self._gunshot_in_progress = False
-            self._unacknowledged_gunshots.remove(shotID)
-            self._successful_gunshots.add(shotID)
-            self.game_state.applyGunState(bullets=remainingBullets)
+        if shotID not in self._shots_fired:
+            self.logger.info(f">> Shot {shotID} received.")
             self.data_queue.put(
                 {
                     "id": self.beetle_id,
                     "type": GUN_PKT,
+                    "playerID": self.player_id,
                     "gunAccX": 0,
                     "gunAccY": 0,
                     "gunAccZ": 0,
@@ -480,13 +408,29 @@ class BeetleDelegate(btle.DefaultDelegate):
                     "ankleGyrZ": 0,
                 }
             )
-            self.logger.info(f">> Shot ID {shotID} acknowledged.")
-            self.logger.info(f"Successful shots: {self._successful_gunshots}")
-            self._expected_gunshot_id = shotID + 1
+            self._shots_fired.add(shotID)
+            self.game_state.useBullet()
+            self.sendGunACK(shotID, remainingBullets)
         else:
             self.logger.warning(
-                f">> Duplicate Shot ID ACK received: {shotID}. Dropping packet..."
+                f">> Duplicate Shot received: {shotID}. Dropping packet..."
             )
+
+    def sendGunACK(self, shotID, remainingBullets):
+        self.logger.info(f"<< Sending GUN ACK for Shot {shotID}...")
+        synack_packet = struct.pack(
+            "<b3B15x", ord(GUN_ACK_PKT), self.seq_num, shotID, remainingBullets
+        )
+        crc = getCRC(synack_packet)
+        synack_packet += struct.pack("B", crc)
+        self.beetle_connection.writeCharacteristic(synack_packet)
+
+        self._sent_packets.append(synack_packet)
+        self.game_state.applyGunState(bullets=remainingBullets)
+
+        print(f"Sent packets: {self._sent_packets}")
+
+        self._expected_gunshot_id = shotID + 1
 
     # ---------------------------- Reload Handling ---------------------------- #
 
@@ -501,35 +445,35 @@ class BeetleDelegate(btle.DefaultDelegate):
         reload_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(reload_packet)
         Timer(
-            self.RESEND_PKT_TIMEOUT,
+            self.RESPONSE_TIMEOUT,
             self.handlePacketTimeout,
             args=[self._action_in_progress],
         ).start()
 
-    def handleReloadSYNACK(self):
+    def handleReloadACK(self):
         """
         Disables the action_in_progress flag and sends the RELOAD ACK packet.
         """
         if self._action_in_progress:
-            self.logger.info(">> Received RELOAD SYN-ACK.")
+            self.logger.info(">> Received RELOAD ACK.")
             self._expected_gunshot_id = 1
-            self._unacknowledged_gunshots = set()
-            self._successful_gunshots = set()
+            self._shots_fired = set()
             self.game_state.applyGunState(bullets=self.MAG_SIZE)
             self._action_in_progress = False
-            self.sendReloadACK()
+            # self.sendReloadACK()
+            self._sqn += 1
         else:
             self.logger.warning(">> Received unexpected RELOAD ACK.")
 
-    def sendReloadACK(self):
-        """
-        Sends the RELOAD ACK packet to the Beetle.
-        """
-        self.logger.info("<< Sending RELOAD ACK...")
-        ack_packet = struct.pack("<b18x", ord(RELOAD_SYNACK_PKT))
-        crc = getCRC(ack_packet)
-        ack_packet += struct.pack("B", crc)
-        self.beetle_connection.writeCharacteristic(ack_packet)
+    # def sendReloadACK(self):
+    # """
+    # Sends the RELOAD ACK packet to the Beetle.
+    # """
+    # self.logger.info("<< Sending RELOAD ACK...")
+    # ack_packet = struct.pack("<b18x", ord(RELOAD_SYNACK_PKT))
+    # crc = getCRC(ack_packet)
+    # ack_packet += struct.pack("B", crc)
+    # self.beetle_connection.writeCharacteristic(ack_packet)
 
     # ---------------------------- Vest Handling ---------------------------- #
 
@@ -539,7 +483,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         shield, health = struct.unpack("<2B16x", data)
         self.game_state.updateVestState(shield=shield, health=health)
         self.sendVestSYNACK()
-        # Timer(self.RESEND_PKT_TIMEOUT, self.handleVestTimeout).start()
+        # Timer(self.RESPONSE_TIMEOUT, self.handleVestTimeout).start()
 
     def sendVestSYNACK(self):
         self.logger.info("<< Sending VESTSHOT SYN-ACK...")
@@ -556,6 +500,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             {
                 "id": self.beetle_id,
                 "type": VESTSHOT_PKT,
+                "playerID": self.player_id,
                 "gunAccX": 0,
                 "gunAccY": 0,
                 "gunAccZ": 0,
@@ -580,31 +525,23 @@ class BeetleDelegate(btle.DefaultDelegate):
         if self._vestshot_in_progress:
             self.logger.info(">> VESTSHOT timeout. Resending VESTSHOT SYN-ACK...")
             self.sendVestSYNACK()
-            # Timer(self.RESEND_PKT_TIMEOUT, self.handleVestTimeout).start()
+            # Timer(self.RESPONSE_TIMEOUT, self.handleVestTimeout).start()
 
-    @property
-    def gunshot_in_progress(self):
-        return self._gunshot_in_progress
+    # @property
+    # def vestshot_in_progress(self):
+    #     return self._vestshot_in_progress
 
-    @gunshot_in_progress.setter
-    def gunshot_in_progress(self, value):
-        self.gunshot_in_progress = value
+    # @vestshot_in_progress.setter
+    # def vestshot_in_progress(self, value):
+    #     self.vestshot_in_progress = value
 
-    @property
-    def vestshot_in_progress(self):
-        return self._vestshot_in_progress
+    # @property
+    # def action_in_progress(self):
+    #     return self._action_in_progress
 
-    @vestshot_in_progress.setter
-    def vestshot_in_progress(self, value):
-        self.vestshot_in_progress = value
-
-    @property
-    def action_in_progress(self):
-        return self._action_in_progress
-
-    @action_in_progress.setter
-    def action_in_progress(self, value):
-        self._action_in_progress = value
+    # @action_in_progress.setter
+    # def action_in_progress(self, value):
+    #     self._action_in_progress = value
 
     @property
     def expected_gunshot_id(self):
@@ -615,33 +552,25 @@ class BeetleDelegate(btle.DefaultDelegate):
         self._expected_gunshot_id = value
 
     @property
-    def successful_gunshots(self):
-        return self._successful_gunshots
+    def shots_fired(self):
+        return self._shots_fired
 
-    @successful_gunshots.setter
-    def successful_gunshots(self, value):
-        self._successful_gunshots = value
+    @shots_fired.setter
+    def shots_fired(self, value):
+        self._shots_fired = value
 
-    @property
-    def unacknowledged_gunshots(self):
-        return self._unacknowledged_gunshots
+    # @property
+    # def sent_packets(self):
+    #     return self._sent_packets
 
-    @unacknowledged_gunshots.setter
-    def unacknowledged_gunshots(self, value):
-        self._unacknowledged_gunshots = value
-
-    @property
-    def sent_packets(self):
-        return self._sent_packets
-
-    @sent_packets.setter
-    def sent_packets(self, packet):
-        self._sent_packets.append(packet)
+    # @sent_packets.setter
+    # def sent_packets(self, packet):
+    #     self._sent_packets.append(packet)
 
     @property
-    def seq_num(self):
-        return self._seq_num
+    def sqn(self):
+        return self._sqn
 
-    @seq_num.setter
+    @sqn.setter
     def seq_num(self, value):
-        self._seq_num = value
+        self._sqn = value
