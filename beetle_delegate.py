@@ -11,11 +11,9 @@ from utils import getCRC, getTransmissionSpeed, logPacketStats
 HS_SYNACK_PKT = "A"
 IMU_DATA_PKT = "M"
 GUN_PKT = "G"
-GUN_ACK_PKT = "X"
 RELOAD_PKT = "R"
 VESTSHOT_PKT = "V"
 VESTSHOT_ACK_PKT = "Z"
-RELOAD_SYNACK_PKT = "Y"
 NAK_PKT = "L"
 STATE_PKT = "D"
 GUNSTATE_SYNACK_PKT = "U"
@@ -183,9 +181,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                 return  # so the expected sequence number does NOT get updated
             elif packet_type == GUN_PKT:
                 self.handleGunPacket(payload)
-            elif packet_type == GUN_ACK_PKT:
-                self.handleGunACK(payload)
-            elif packet_type == RELOAD_SYNACK_PKT:
+            elif packet_type == RELOAD_PKT:
                 self.handleReloadACK()
             elif packet_type == VESTSHOT_PKT:
                 self.handleVestPacket(payload)
@@ -419,7 +415,7 @@ class BeetleDelegate(btle.DefaultDelegate):
     def sendGunACK(self, shotID, remainingBullets):
         self.logger.info(f"<< Sending GUN ACK for Shot {shotID}...")
         synack_packet = struct.pack(
-            "<b3B15x", ord(GUN_ACK_PKT), self.seq_num, shotID, remainingBullets
+            "<b3B15x", ord(GUN_PKT), self.seq_num, shotID, remainingBullets
         )
         crc = getCRC(synack_packet)
         synack_packet += struct.pack("B", crc)
@@ -460,20 +456,9 @@ class BeetleDelegate(btle.DefaultDelegate):
             self._shots_fired = set()
             self.game_state.applyGunState(bullets=self.MAG_SIZE)
             self._action_in_progress = False
-            # self.sendReloadACK()
             self._sqn += 1
         else:
             self.logger.warning(">> Received unexpected RELOAD ACK.")
-
-    # def sendReloadACK(self):
-    # """
-    # Sends the RELOAD ACK packet to the Beetle.
-    # """
-    # self.logger.info("<< Sending RELOAD ACK...")
-    # ack_packet = struct.pack("<b18x", ord(RELOAD_SYNACK_PKT))
-    # crc = getCRC(ack_packet)
-    # ack_packet += struct.pack("B", crc)
-    # self.beetle_connection.writeCharacteristic(ack_packet)
 
     # ---------------------------- Vest Handling ---------------------------- #
 

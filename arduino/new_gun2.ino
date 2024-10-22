@@ -15,9 +15,7 @@
 #define NAK_PACKET 'L'
 #define IMU_PACKET 'M'
 #define GUN_PACKET 'G'
-#define GUN_ACK_PACKET 'X'  // For gunshot SYN-ACK from laptop
 #define RELOAD_PACKET 'R'
-#define RELOAD_ACK_PACKET 'Y'
 #define STATE_PACKET 'D'
 #define STATE_ACK_PACKET 'U'
 
@@ -135,7 +133,7 @@ void handlePacket(Packet &packet) {
       // packet.sqn == laptops expected seq num
       Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
-    case GUN_ACK_PACKET:
+    case GUN_PACKET:
       applyPendingState();
       // unacknowledgedShots.erase(packet.shotID);
       currShot++;
@@ -144,7 +142,7 @@ void handlePacket(Packet &packet) {
     case RELOAD_PACKET:  // recvs reload packet from laptop
       // unacknowledgedShots.clear();
       reloadMag();
-      sendPacket(RELOAD_ACK_PACKET);
+      sendPacket(RELOAD_PACKET);
       expectedSeqNum++;
       break;
     case STATE_PACKET:
