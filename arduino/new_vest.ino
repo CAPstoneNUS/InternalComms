@@ -5,9 +5,9 @@
 #include "PinDefinitionsAndMore.h"
 
 #define SYN_PACKET 'S'
-#define KILL_PACKET 'J'
+#define KILL_PACKET 'K'
 #define ACK_PACKET 'A'
-#define NAK_PACKET 'L'
+#define NAK_PACKET 'N'
 #define VESTSHOT_PACKET 'V'
 #define UPDATE_STATE_PACKET 'U'
 #define VESTSTATE_ACK_PKT 'W'
@@ -149,22 +149,30 @@ void handlePacket(Packet &packet) {
       if (packet.sqn == sqn) { // if we recv the sqn we sent...
         applyPendingState();
         sqn++;
-        break;
       } else {
-        sendNAKPacket();
+        sendNAKPacket(sqn);
       }
+      break;
+    case UPDATE_STATE_PACKET:
+      if (packet.sqn == expectedSeqNum) {
+        updatePendingState(packet.shield, packet.health);
+        sendPacket(VESTSTATE_ACK_PKT);
+        applyPendingState();
+        expectedSeqNum++;
+      } else {
+        sendNAKPacket(expectedSeqNum);
+      }
+      break;
     case NAK_PACKET:
       // packet.sqn refers to laptops expected seq num
       Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
-    case UPDATE_STATE_PACKET:
-      updatePendingState(packet.shield, packet.health);
-      sendPacket(VESTSTATE_ACK_PKT);
-      applyPendingState();
-      expectedSeqNum++;
-      break;
     case KILL_PACKET:
       asm volatile ("jmp 0");
+      break;
+    default:
+      sendNAKPacket(expectedSeqNum);
+      break;
   }
 }
 
@@ -226,12 +234,11 @@ void loop(){
   }
 }
 
-void sendNAKPacket() {
+void sendNAKPacket(uint8_t seqNum) {
   // Prepare packet
   Packet packet;
   packet.packetType = NAK_PACKET;
-  packet.sqn = sqn;
-  packet.shield = expectedSeqNum;
+  packet.sqn = seqNum;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
   crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));

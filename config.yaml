@@ -6,6 +6,7 @@
 game:
   player_id: 2
 
+device:
   # ------------ PLAYER 1 ------------ #
   # beetle_1: "F4:B8:5E:42:61:38" # gun
   # beetle_2: "D0:5F:B8:56:DF:70" # imu
@@ -18,7 +19,6 @@ game:
 
 # by the time this repo is made public, the IP address will have changed
 # hence its not a security risk
-device:
   ultra_ip:  "172.26.190.158"
   ultra_port: 9876
 

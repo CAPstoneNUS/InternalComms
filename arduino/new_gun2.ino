@@ -8,9 +8,9 @@
 #include "CRC8.h"
 
 #define SYN_PACKET 'S'
-#define KILL_PACKET 'J'
+#define KILL_PACKET 'K'
 #define ACK_PACKET 'A'  // For handshaking
-#define NAK_PACKET 'L'
+#define NAK_PACKET 'N'
 #define IMU_PACKET 'M'
 #define GUNSHOT_PACKET 'G'
 #define RELOAD_PACKET 'R'
@@ -130,31 +130,41 @@ void handlePacket(Packet &packet) {
     case GUNSHOT_PACKET:
       if (packet.sqn == sqn) { // if we recv what we sent out
         applyPendingState();
-        // unacknowledgedShots.erase(packet.shotID);
         currShot++;
         sqn++;
-        break;
       } else {
-        sendNAKPacket();
+        sendNAKPacket(sqn);
       }
+      break;
+    case RELOAD_PACKET:
+      if (packet.sqn == expectedSeqNum) {
+        reloadMag();
+        sendPacket(RELOAD_PACKET);
+        expectedSeqNum++;
+      } else {
+        sendNAKPacket(expectedSeqNum);
+      }
+      break;
+    case UPDATE_STATE_PACKET:
+      if (packet.sqn == expectedSeqNum) {
+        updatePendingState(packet.shotID, packet.remainingBullets);
+        sendPacket(GUNSTATE_ACK_PKT);
+        applyPendingState();
+        expectedSeqNum++;
+      } else {
+        sendNAKPacket(expectedSeqNum);
+      }
+      break;
     case NAK_PACKET:
       // packet.sqn refers to laptops expected seq num
       Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
-    case RELOAD_PACKET:
-      // unacknowledgedShots.clear();
-      reloadMag();
-      sendPacket(RELOAD_PACKET);
-      expectedSeqNum++;
-      break;
-    case UPDATE_STATE_PACKET:
-      updatePendingState(packet.shotID, packet.remainingBullets);
-      sendPacket(GUNSTATE_ACK_PKT);
-      applyPendingState();
-      expectedSeqNum++;
-      break;
     case KILL_PACKET:
       asm volatile("jmp 0");
+      break;
+    default:
+      sendNAKPacket(expectedSeqNum);
+      break;
   }
 }
 
@@ -227,12 +237,11 @@ void loop() {
   }
 }
 
-void sendNAKPacket() {
+void sendNAKPacket(uint8_t seqNum) {
   // Prepare packet
   Packet packet;
   packet.packetType = NAK_PACKET;
-  packet.sqn = sqn;
-  packet.shotID = expectedSeqNum;
+  packet.sqn = seqNum;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
   crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
