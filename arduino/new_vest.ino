@@ -35,16 +35,8 @@ uint8_t currBufferIdx = 0;
 int RED_ENCODING_VALUE = 0xFF6897;
 int ATTACK_ENCODING_VALUE = 0xFF9867; //TOD
 
-// struct PacketTimeout {
-//   char packetType;
-//   unsigned long lastSentTime;
-//   bool waiting;
-// };
-
-// PacketTimeout timeouts[] = {
-//   {UPDATE_STATE_PACKET, 0, false},
-//   {VESTSHOT_PACKET, 0, false}
-// };
+unsigned long lastVestShotTime = 0;
+bool waitingForVestACK = false;
 
 struct Packet {
   char packetType;
@@ -106,15 +98,20 @@ void sendPacket(char packetType) {
   if (packetType != ACK_PACKET) {
     storePacket(packet);
   }
+}
 
-  // // Set timeout for the sent packet
-  // for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
-  //   if (timeouts[i].packetType == packetType) {
-  //     timeouts[i].lastSentTime = millis();
-  //     timeouts[i].waiting = true;
-  //     break;
-  //   }
-  // }
+void sendNAKPacket(uint8_t seqNum) {
+  // Prepare packet
+  Packet packet;
+  packet.packetType = NAK_PACKET;
+  packet.sqn = seqNum;
+  memset(packet.padding, 0, sizeof(packet.padding));
+  crc8.restart();
+  crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
+  packet.crc = (uint8_t)crc8.calc();
+
+  // Send packet
+  Serial.write((byte *)&packet, sizeof(packet));
 }
 
 void storePacket(Packet packet) {
@@ -148,6 +145,7 @@ void handlePacket(Packet &packet) {
     case VESTSHOT_PACKET:
       if (packet.sqn == sqn) { // if we recv the sqn we sent...
         applyPendingState();
+        waitingForVestACK = false;
         sqn++;
       } else {
         sendNAKPacket(sqn);
@@ -222,30 +220,18 @@ void loop(){
     if (IrReceiver.decode() && IrReceiver.decodedIRData.command == 0x16) {
       applyDamageToPendingState(5);
       sendPacket(VESTSHOT_PACKET);
+      waitingForVestACK = true;
+      lastVestShotTime = millis();
       IrReceiver.resume();
     }
 
-    // // Handle timeouts
-    // for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
-    //   if (timeouts[i].waiting && (millis() - timeouts[i].lastSentTime > RESPONSE_TIMEOUT)) {
-    //     sendPacket(timeouts[i].packetType);
-    //   }
-    // }
+    if (waitingForVestACK) {
+      if (millis() - lastVestShotTime > RESPONSE_TIMEOUT) {
+        sendPacket(VESTSHOT_PACKET);
+        lastVestShotTime = millis();
+      }
+    }
   }
-}
-
-void sendNAKPacket(uint8_t seqNum) {
-  // Prepare packet
-  Packet packet;
-  packet.packetType = NAK_PACKET;
-  packet.sqn = seqNum;
-  memset(packet.padding, 0, sizeof(packet.padding));
-  crc8.restart();
-  crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
-  packet.crc = (uint8_t)crc8.calc();
-
-  // Send packet
-  Serial.write((byte *)&packet, sizeof(packet));
 }
 
 void updateLED(){
