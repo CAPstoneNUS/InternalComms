@@ -224,7 +224,6 @@ class BeetleConnection:
         if self.mac_address == self.config["device"]["beetle_1"]:  # gun
             currShot = self.game_state.getCurrShot()
             remainingBullets = self.game_state.getRemainingBullets()
-            self.beetle_delegate.expected_gunshot_id = currShot
             self.beetle_delegate._shots_fired = {i for i in range(1, currShot)}
             syn_packet = struct.pack(
                 "b3B15x",

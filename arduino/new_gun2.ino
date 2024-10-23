@@ -7,22 +7,21 @@
 #include <set>
 #include "CRC8.h"
 
-#define PACKET_BUFFER_SIZE 16
-
 #define SYN_PACKET 'S'
 #define KILL_PACKET 'J'
 #define ACK_PACKET 'A'  // For handshaking
 #define NAK_PACKET 'L'
 #define IMU_PACKET 'M'
-#define GUN_PACKET 'G'
+#define GUNSHOT_PACKET 'G'
 #define RELOAD_PACKET 'R'
-#define STATE_PACKET 'D'
-#define STATE_ACK_PACKET 'U'
+#define UPDATE_STATE_PACKET 'U'
+#define GUNSTATE_ACK_PKT 'X'
 
 CRC8 crc8;
 Adafruit_MPU6050 mpu;
 
 const uint8_t MAG_SIZE = 6;
+const uint8_t PACKET_BUFFER_SIZE = 4;
 const unsigned long IMU_INTERVAL = 50;
 const unsigned long RESPONSE_TIMEOUT = 1000;
 
@@ -93,7 +92,6 @@ void applyPendingState() {
 
 // --------------------------------------------------------- //
 
-Packet packet;
 Packet packets[PACKET_BUFFER_SIZE];
 
 void sendPacket(char packetType) {
@@ -129,25 +127,29 @@ Packet retreivePacket(uint8_t sqn) {
 
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
+    case GUNSHOT_PACKET:
+      if (packet.sqn == sqn) { // if we recv what we sent out
+        applyPendingState();
+        // unacknowledgedShots.erase(packet.shotID);
+        currShot++;
+        sqn++;
+        break;
+      } else {
+        sendNAKPacket();
+      }
     case NAK_PACKET:
-      // packet.sqn == laptops expected seq num
+      // packet.sqn refers to laptops expected seq num
       Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
-    case GUN_PACKET:
-      applyPendingState();
-      // unacknowledgedShots.erase(packet.shotID);
-      currShot++;
-      sqn++;
-      break;
-    case RELOAD_PACKET:  // recvs reload packet from laptop
+    case RELOAD_PACKET:
       // unacknowledgedShots.clear();
       reloadMag();
       sendPacket(RELOAD_PACKET);
       expectedSeqNum++;
       break;
-    case STATE_PACKET:
+    case UPDATE_STATE_PACKET:
       updatePendingState(packet.shotID, packet.remainingBullets);
-      sendPacket(STATE_ACK_PACKET);
+      sendPacket(GUNSTATE_ACK_PKT);
       applyPendingState();
       expectedSeqNum++;
       break;
@@ -164,6 +166,7 @@ void setup() {
   initializePendingState();
   reloadMag();
   mpuSetup();
+  hasHandshake = false;
   sqn = 0;
   expectedSeqNum = 0;
   currBufferIdx = 0;
@@ -173,8 +176,8 @@ int buttonState = 0;
 unsigned long previousIMUMillis = 0;   // Variable to store the last time sendIMUData() was executed
 
 void loop() {
-  // Check if a packet has been received on the serial port
   if (Serial.available() >= sizeof(Packet)) {
+    Packet packet;
     Serial.readBytes((byte *)&packet, sizeof(Packet));
 
     crc8.restart();
@@ -199,11 +202,7 @@ void loop() {
             break;
         }
       } else { // has handshake
-        if (expectedSeqNum == packet.sqn) {
-          handlePacket(packet);
-        } else {
-          sendNAKPacket();
-        }
+        handlePacket(packet);
       }
     }
   }
@@ -222,7 +221,7 @@ void loop() {
     // if (!unacknowledgedShots.empty() && currMillis - lastGunShotTime >= RESPONSE_TIMEOUT) {
     //   Serial.write((byte *)&(retreivePacket(sqn - 1)), sizeof(Packet));
     //   // uint8_t shotToResend = *unacknowledgedShots.begin();
-    //   // sendPacketWithID(GUN_PACKET, shotToResend);
+    //   // sendPacketWithID(GUNSHOT_PACKET, shotToResend);
     //   lastGunShotTime = currMillis;
     // }
   }
@@ -230,6 +229,7 @@ void loop() {
 
 void sendNAKPacket() {
   // Prepare packet
+  Packet packet;
   packet.packetType = NAK_PACKET;
   packet.sqn = sqn;
   packet.shotID = expectedSeqNum;
@@ -265,7 +265,7 @@ void readButton(unsigned long currMillis) {
         if (remainingBullets > 0) {
           IrSender.sendNEC(RED_ENCODING_VALUE, 32);
           updatePendingState(currShot, --remainingBullets);
-          sendPacket(GUN_PACKET);
+          sendPacket(GUNSHOT_PACKET);
           // unacknowledgedShots.insert(pendingState.currShot);
           lastGunShotTime = currMillis;
           updateLED(pendingState.remainingBullets);

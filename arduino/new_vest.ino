@@ -7,21 +7,11 @@
 #define SYN_PACKET 'S'
 #define KILL_PACKET 'J'
 #define ACK_PACKET 'A'
-// #define NAK_PACKET 'L'
+#define NAK_PACKET 'L'
 #define VESTSHOT_PACKET 'V'
-#define VESTSHOT_ACK_PACKET 'Z'
-#define STATE_PACKET 'D'
-#define STATE_ACK_PACKET 'W'
+#define UPDATE_STATE_PACKET 'U'
+#define VESTSTATE_ACK_PKT 'W'
 
-#define MAX_SHIELD 30
-#define MAX_HEALTH 100
-#define TIMEOUT_MS 1000 // 1 second timeout
-/*
- * Specify which protocol(s) should be used for decoding.
- * If no protocol is defined, all protocols (except Bang&Olufsen) are active.
- * This must be done before the #include <IRremote.hpp>
- */
-// #define DECODE_NEC          // Includes Apple and Onkyo. To enable all protocols , just comment/disable this line.
 #define LED_PIN  4
 #define NUMPIXELS 10
 #define RECV_PIN 2
@@ -30,10 +20,18 @@ Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 CRC8 crc8;
 
+const uint8_t MAX_SHIELD = 30;
+const uint8_t MAX_HEALTH = 100;
+const uint8_t PACKET_BUFFER_SIZE = 4;
+const unsigned long RESPONSE_TIMEOUT = 1000;
+
 uint8_t shield = 0;
 uint8_t health = MAX_HEALTH;
-
 bool hasHandshake = false;
+uint8_t sqn = 0;
+uint8_t expectedSeqNum = 0;
+uint8_t currBufferIdx = 0;
+
 int RED_ENCODING_VALUE = 0xFF6897;
 int ATTACK_ENCODING_VALUE = 0xFF9867; //TOD
 
@@ -44,19 +42,20 @@ int ATTACK_ENCODING_VALUE = 0xFF9867; //TOD
 // };
 
 // PacketTimeout timeouts[] = {
-//   {STATE_PACKET, 0, false},
+//   {UPDATE_STATE_PACKET, 0, false},
 //   {VESTSHOT_PACKET, 0, false}
 // };
 
 struct Packet {
   char packetType;
+  uint8_t sqn;
   uint8_t shield;
   uint8_t health;
-  byte padding[16];
+  byte padding[15];
   uint8_t crc;
 };
 
-Packet lastPacket;
+Packet packets[PACKET_BUFFER_SIZE];
 
 // ---------------- Pending State Management ---------------- //
 
@@ -93,6 +92,7 @@ void sendPacket(char packetType) {
   // Prepare packet
   Packet packet;
   packet.packetType = packetType;
+  packet.sqn = sqn;
   packet.shield = pendingState.isPending ? pendingState.shield : shield;
   packet.health = pendingState.isPending ? pendingState.health : health;
   memset(packet.padding, 0, sizeof(packet.padding));
@@ -103,8 +103,9 @@ void sendPacket(char packetType) {
   // Send packet
   Serial.write((byte *)&packet, sizeof(packet));
 
-  // Store last packet
-  lastPacket = packet;
+  if (packetType != ACK_PACKET) {
+    storePacket(packet);
+  }
 
   // // Set timeout for the sent packet
   // for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
@@ -114,6 +115,16 @@ void sendPacket(char packetType) {
   //     break;
   //   }
   // }
+}
+
+void storePacket(Packet packet) {
+  packets[currBufferIdx] = packet;
+  currBufferIdx = (currBufferIdx + 1) % PACKET_BUFFER_SIZE;  // circular buffer
+}
+
+Packet retreivePacket(uint8_t sqn) {
+  int idx = sqn % PACKET_BUFFER_SIZE;
+  return packets[idx];
 }
 
 void applyDamageToPendingState(uint8_t damage) {
@@ -134,29 +145,23 @@ void applyDamageToPendingState(uint8_t damage) {
 
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
-    case SYN_PACKET:
-      // Sync game state upon reconnection
+    case VESTSHOT_PACKET:
+      if (packet.sqn == sqn) { // if we recv the sqn we sent...
+        applyPendingState();
+        sqn++;
+        break;
+      } else {
+        sendNAKPacket();
+      }
+    case NAK_PACKET:
+      // packet.sqn refers to laptops expected seq num
+      Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
+      break;
+    case UPDATE_STATE_PACKET:
       updatePendingState(packet.shield, packet.health);
-      sendPacket(ACK_PACKET);
-      break;
-    case ACK_PACKET:
+      sendPacket(VESTSTATE_ACK_PKT);
       applyPendingState();
-      hasHandshake = true;
-      break;
-    // case NAK_PACKET:
-    //   Serial.write((byte *)&lastPacket, sizeof(lastPacket)); // resend last packet
-    //   break;
-    case STATE_PACKET:
-      updatePendingState(packet.shield, packet.health);
-      sendPacket(STATE_ACK_PACKET);
-      break;
-    case STATE_ACK_PACKET:
-      applyPendingState();
-      break;
-    case VESTSHOT_ACK_PACKET:
-      applyPendingState();
-      // timeouts[1].waiting = false;
-      sendPacket(VESTSHOT_ACK_PACKET);
+      expectedSeqNum++;
       break;
     case KILL_PACKET:
       asm volatile ("jmp 0");
@@ -170,25 +175,42 @@ void setup() {
   pixels.begin();
   updateLED();
   hasHandshake = false;
+  sqn = 0;
+  expectedSeqNum = 0;
+  currBufferIdx = 0;
 }
 
 void loop(){
-  // Laptop --> Vest
   if (Serial.available() >= sizeof(Packet)) {
-    Packet receivedPacket;
-    Serial.readBytes((byte *)&receivedPacket, sizeof(Packet));
+    Packet packet;
+    Serial.readBytes((byte *)&packet, sizeof(Packet));
 
     crc8.restart();
-    crc8.add((uint8_t *)&receivedPacket, sizeof(Packet) - sizeof(receivedPacket.crc));
+    crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
     uint8_t calculatedCRC = (uint8_t)crc8.calc();
 
-    if (calculatedCRC == receivedPacket.crc) {
-      handlePacket(receivedPacket);
+    if (calculatedCRC == packet.crc) {
+      if (!hasHandshake) {
+        switch (packet.packetType) {
+          case SYN_PACKET:
+            sqn = 0;
+            expectedSeqNum = 0;
+            updatePendingState(packet.shield, packet.health);
+            sendPacket(ACK_PACKET);
+            break;
+          case ACK_PACKET:
+            applyPendingState();
+            hasHandshake = true;
+            break;
+        }
+      } else { // has handshake
+        handlePacket(packet);
+      }
     }
   }
 
   if (hasHandshake) {
-    // Gun --> Vest
+    // Gun (IR Emit) --> Vest (IR Recv)
     if (IrReceiver.decode() && IrReceiver.decodedIRData.command == 0x16) {
       applyDamageToPendingState(5);
       sendPacket(VESTSHOT_PACKET);
@@ -197,11 +219,26 @@ void loop(){
 
     // // Handle timeouts
     // for (int i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
-    //   if (timeouts[i].waiting && (millis() - timeouts[i].lastSentTime > TIMEOUT_MS)) {
+    //   if (timeouts[i].waiting && (millis() - timeouts[i].lastSentTime > RESPONSE_TIMEOUT)) {
     //     sendPacket(timeouts[i].packetType);
     //   }
     // }
   }
+}
+
+void sendNAKPacket() {
+  // Prepare packet
+  Packet packet;
+  packet.packetType = NAK_PACKET;
+  packet.sqn = sqn;
+  packet.shield = expectedSeqNum;
+  memset(packet.padding, 0, sizeof(packet.padding));
+  crc8.restart();
+  crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
+  packet.crc = (uint8_t)crc8.calc();
+
+  // Send packet
+  Serial.write((byte *)&packet, sizeof(packet));
 }
 
 void updateLED(){
