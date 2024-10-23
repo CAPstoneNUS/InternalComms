@@ -1,7 +1,20 @@
-# nstructions: change the player_id to 1/2, which uses (gun, imu, vest)/(gun2, imu2, vest2)
+# Instructions:
+# 1. Change the player_id to 1 or 2
+# 2. Uncomment the correct MAC addresses for the beetles
+# 3. Change the IP address to the IP address of the Ultra96
 
 game:
   player_id: 2
+
+  # ------------ PLAYER 1 ------------ #
+  # beetle_1: "F4:B8:5E:42:61:38" # gun
+  # beetle_2: "D0:5F:B8:56:DF:70" # imu
+  # beetle_3: "F4:B8:5E:42:67:21" # vest
+
+  # ------------ PLAYER 2 ------------ #
+  beetle_1: "50:65:83:77:57:F3" # gun2
+  beetle_2: "F4:B8:5E:42:6D:37" # imu2
+  beetle_3: "F4:B8:5E:42:6D:5D" # vest2
 
 # by the time this repo is made public, the IP address will have changed
 # hence its not a security risk
@@ -9,13 +22,6 @@ device:
   ultra_ip:  "172.26.190.158"
   ultra_port: 9876
 
-  # beetle_1: "F4:B8:5E:42:61:38" # gun
-  beetle_1: "50:65:83:77:57:F3" # gun2
-  # beetle_2: "D0:5F:B8:56:DF:70" # imu
-  beetle_2: "F4:B8:5E:42:6D:37" # imu2
-  # beetle_3: "F4:B8:5E:42:67:21" # vest
-  beetle_3: "F4:B8:5E:42:6D:5D" # vest2
-  
 uuid:
   service: "0000dfb0-0000-1000-8000-00805f9b34fb"
   characteristic: "0000dfb1-0000-1000-8000-00805f9b34fb"
