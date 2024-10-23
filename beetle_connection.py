@@ -11,6 +11,7 @@ HS_SYN_PKT = "S"
 HS_ACK_PKT = "A"
 ATTACK_PKT = "K"
 BOMB_PKT = "B"
+KILL_PKT = "K"
 SHIELD_PKT = "P"
 
 
@@ -299,7 +300,7 @@ class BeetleConnection:
         self.logger.info(
             f"---------------------- KILLING BEETLE ----------------------"
         )
-        reset_packet = struct.pack("b18x", ord("J"))
+        reset_packet = struct.pack("b18x", ord(KILL_PKT))
         crc = getCRC(reset_packet)
         reset_packet += struct.pack("B", crc)
         self.serial_characteristic.write(reset_packet)
