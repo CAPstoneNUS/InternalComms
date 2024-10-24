@@ -4,7 +4,6 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
-#include <set>
 #include "CRC8.h"
 
 #define SYN_PACKET 'S'
@@ -28,12 +27,12 @@ const unsigned long RESPONSE_TIMEOUT = 1000;
 uint8_t calculatedCRC;
 uint8_t currShot = 1;
 uint8_t remainingBullets = MAG_SIZE;
-// std::set<uint8_t> unacknowledgedShots;
 bool hasHandshake = false;
-unsigned long lastGunShotTime = 0;
 uint8_t sqn = 0;
 uint8_t expectedSeqNum = 0;
 uint8_t currBufferIdx = 0;
+unsigned long lastGunShotTime = 0;
+bool waitingForGunACK = false;
 
 // #define LED 3
 #define IR_PIN 3
@@ -129,7 +128,9 @@ void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case GUNSHOT_PACKET:
       if (packet.sqn == sqn) { // if we recv what we sent out
+        waitingForGunACK = false;
         applyPendingState();
+        lastGunShotTime = millis();
         currShot++;
         sqn++;
       } else {
@@ -227,13 +228,10 @@ void loop() {
       sendIMUData();
     }
 
-    // // Handle resending of unacknowledged shots
-    // if (!unacknowledgedShots.empty() && currMillis - lastGunShotTime >= RESPONSE_TIMEOUT) {
-    //   Serial.write((byte *)&(retreivePacket(sqn - 1)), sizeof(Packet));
-    //   // uint8_t shotToResend = *unacknowledgedShots.begin();
-    //   // sendPacketWithID(GUNSHOT_PACKET, shotToResend);
-    //   lastGunShotTime = currMillis;
-    // }
+    if (waitingForGunACK && (currMillis - lastGunShotTime) > RESPONSE_TIMEOUT) {
+      sendPacket(GUNSHOT_PACKET);
+      lastGunShotTime = currMillis;
+    }
   }
 }
 
@@ -275,7 +273,7 @@ void readButton(unsigned long currMillis) {
           IrSender.sendNEC(RED_ENCODING_VALUE, 32);
           updatePendingState(currShot, --remainingBullets);
           sendPacket(GUNSHOT_PACKET);
-          // unacknowledgedShots.insert(pendingState.currShot);
+          waitingForGunACK = true;
           lastGunShotTime = currMillis;
           updateLED(pendingState.remainingBullets);
         }
