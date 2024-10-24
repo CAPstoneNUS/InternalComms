@@ -41,7 +41,7 @@ bool waitingForGunACK = false;
 #define LED_PIN 4
 #define NUMPIXELS 6
 
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 int RED_ENCODING_VALUE = 0xFF6897;     //TODO
 int ACTION_ENCODING_VALUE = 0xFF9867;  //TOD
@@ -335,13 +335,13 @@ void reloadMag() {
   currShot = 1;
   remainingBullets = MAG_SIZE;
   for (int i = 0; i < remainingBullets; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 10, 0));
   }
   pixels.show();
 }
 
 void updateLED(int bulletToOff) {
-  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0, 0));
+  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0));
   pixels.show();
 }
 
