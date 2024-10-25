@@ -220,8 +220,10 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleStateTimeout(self):
         if self._state_change_ip:
-            self.logger.warning(f"State change packet timeout. Resending last packet...")
-            self.beetle_connection.writeCharacteristic(self._sent_packets[-1]) # FIXME
+            self.logger.warning(
+                f"State change packet timeout. Resending last packet..."
+            )
+            self.beetle_connection.writeCharacteristic(self._sent_packets[-1])  # FIXME
             Timer(
                 self.RESPONSE_TIMEOUT,
                 self.handleStateTimeout,
@@ -355,18 +357,6 @@ class BeetleDelegate(btle.DefaultDelegate):
                     "id": self.beetle_id,
                     "type": GUNSHOT_PKT,
                     "playerID": self.player_id,
-                    "gunAccX": 0,
-                    "gunAccY": 0,
-                    "gunAccZ": 0,
-                    "gunGyrX": 0,
-                    "gunGyrY": 0,
-                    "gunGyrZ": 0,
-                    "ankleAccX": 0,
-                    "ankleAccY": 0,
-                    "ankleAccZ": 0,
-                    "ankleGyrX": 0,
-                    "ankleGyrY": 0,
-                    "ankleGyrZ": 0,
                 }
             )
             self._shots_fired.add(shotID)
@@ -424,18 +414,6 @@ class BeetleDelegate(btle.DefaultDelegate):
                 "id": self.beetle_id,
                 "type": VESTSHOT_PKT,
                 "playerID": self.player_id,
-                "gunAccX": 0,
-                "gunAccY": 0,
-                "gunAccZ": 0,
-                "gunGyrX": 0,
-                "gunGyrY": 0,
-                "gunGyrZ": 0,
-                "ankleAccX": 0,
-                "ankleAccY": 0,
-                "ankleAccZ": 0,
-                "ankleGyrX": 0,
-                "ankleGyrY": 0,
-                "ankleGyrZ": 0,
             }
         )
         beetle_sqn, shield, health = struct.unpack("<3B15x", data)

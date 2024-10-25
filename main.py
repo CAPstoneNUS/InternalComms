@@ -5,7 +5,7 @@ import threading
 from game_state import GameState
 from relay_client import RelayClient
 from beetle_connection import BeetleConnection
-from utils import loadConfig, dataConsumer, setupLogger, signal_handler
+from utils import loadConfig, dataConsumer, setupLogger, signalHandler
 
 
 def main():
@@ -54,7 +54,7 @@ def main():
         beetle_threads.append(thread)
         thread.start()
 
-    signal.signal(signal.SIGINT, lambda sig, frame: signal_handler(sig, frame, beetle_conns))
+    signal.signal(signal.SIGINT, lambda sig, frame: signalHandler(sig, frame, beetle_conns))
 
     consumer_thread = threading.Thread(target=dataConsumer, args=(config, sender_queue))
     consumer_thread.start()

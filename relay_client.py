@@ -93,9 +93,7 @@ class RelayClient(threading.Thread):
         try:
             msg_str = json.dumps(data)
             msg_tosend = f"{len(msg_str)}_{msg_str}"
-            # print(f"SENDING: {msg_tosend}")
             self.relayclient.sendall(msg_tosend.encode("utf-8"))
-            # print("Sent to Ultra96", end="\r")
         except socket.timeout:
             print("Socket timed out")
         except socket.error as e:

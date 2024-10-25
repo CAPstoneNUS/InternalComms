@@ -7,7 +7,7 @@ from bluepy import btle
 import yaml
 
 
-def signal_handler(signal, frame, beetles):
+def signalHandler(signal, frame, beetles):
     print("Ctrl+C detected. Sending reset signals to all Beetles...")
 
     for beetle in beetles:

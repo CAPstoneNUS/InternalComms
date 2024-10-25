@@ -19,7 +19,7 @@ device:
 
 # by the time this repo is made public, the IP address will have changed
 # hence its not a security risk
-  ultra_ip:  "172.26.190.158"
+  ultra_ip:  "172.26.191.120"
   ultra_port: 9876
 
 uuid:
@@ -37,9 +37,9 @@ storage:
   max_queue_size: 2000
 
 time:
-  response_timeout: 3
-  handshake_interval: 7
-  reconnection_interval: 11
+  response_timeout: 1
+  handshake_interval: 2
+  reconnection_interval: 3
   stats_log_interval: 5
   max_notif_wait_time: 300
 
