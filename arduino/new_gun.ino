@@ -41,7 +41,7 @@ bool waitingForGunACK = false;
 #define LED_PIN 4
 #define NUMPIXELS 6
 
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 int RED_ENCODING_VALUE = 0xFF6897;     //TODO
 int ACTION_ENCODING_VALUE = 0xFF9867;  //TOD
@@ -196,24 +196,25 @@ void loop() {
     calculatedCRC = (uint8_t)crc8.calc();
 
     if (calculatedCRC == packet.crc) {
-      if (!hasHandshake) {
-        switch (packet.packetType) {
-          case SYN_PACKET:
-            sqn = 0;
-            expectedSeqNum = 0;
-            updatePendingState(packet.shotID, packet.remainingBullets);
-            sendPacket(ACK_PACKET);
-            break;
-          case ACK_PACKET:
-            applyPendingState();
-            for (int i = 1; i <= currShot; i++) {  // pendingState applied to global currShot
-              updateLED(7 - i);
-            }
-            hasHandshake = true;
-            break;
-        }
-      } else { // has handshake
-        handlePacket(packet);
+      switch (packet.packetType) {
+        case SYN_PACKET:
+          sqn = 0;
+          expectedSeqNum = 0;
+          hasHandshake = false;
+          updatePendingState(packet.shotID, packet.remainingBullets);
+          sendPacket(ACK_PACKET);
+          break;
+        case ACK_PACKET:
+          applyPendingState();
+          for (int i = 1; i <= currShot; i++) {  // pendingState applied to global currShot
+            updateLED(7 - i);
+          }
+          hasHandshake = true;
+          break;
+        default:
+          if (hasHandshake) {
+            handlePacket(packet);
+          }
       }
     }
   }
@@ -228,6 +229,7 @@ void loop() {
       sendIMUData();
     }
 
+    // Gunshot packet timeout
     if (waitingForGunACK && (currMillis - lastGunShotTime) > RESPONSE_TIMEOUT) {
       sendPacket(GUNSHOT_PACKET);
       lastGunShotTime = currMillis;
@@ -335,13 +337,13 @@ void reloadMag() {
   currShot = 1;
   remainingBullets = MAG_SIZE;
   for (int i = 0; i < remainingBullets; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 10, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
   }
   pixels.show();
 }
 
 void updateLED(int bulletToOff) {
-  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0));
+  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0, 0));
   pixels.show();
 }
 

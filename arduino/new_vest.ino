@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <IRremote.hpp> // include the library
+#include <IRremote.hpp>  // include the library
 #include <Adafruit_NeoPixel.h>
 #include "CRC8.h"
 #include "PinDefinitionsAndMore.h"
@@ -12,7 +12,7 @@
 #define UPDATE_STATE_PACKET 'U'
 #define VESTSTATE_ACK_PKT 'W'
 
-#define LED_PIN  4
+#define LED_PIN 4
 #define NUMPIXELS 10
 #define RECV_PIN 2
 
@@ -33,7 +33,7 @@ uint8_t expectedSeqNum = 0;
 uint8_t currBufferIdx = 0;
 
 int RED_ENCODING_VALUE = 0xFF6897;
-int ATTACK_ENCODING_VALUE = 0xFF9867; //TOD
+int ATTACK_ENCODING_VALUE = 0xFF9867;  //TOD
 
 unsigned long lastVestShotTime = 0;
 bool waitingForVestACK = false;
@@ -143,7 +143,7 @@ void applyDamageToPendingState(uint8_t damage) {
 void handlePacket(Packet &packet) {
   switch (packet.packetType) {
     case VESTSHOT_PACKET:
-      if (packet.sqn == sqn) { // if we recv the sqn we sent...
+      if (packet.sqn == sqn) {  // if we recv the sqn we sent...
         applyPendingState();
         waitingForVestACK = false;
         sqn++;
@@ -166,7 +166,7 @@ void handlePacket(Packet &packet) {
       Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
     case KILL_PACKET:
-      asm volatile ("jmp 0");
+      asm volatile("jmp 0");
       break;
     default:
       sendNAKPacket(expectedSeqNum);
@@ -186,7 +186,7 @@ void setup() {
   currBufferIdx = 0;
 }
 
-void loop(){
+void loop() {
   if (Serial.available() >= sizeof(Packet)) {
     Packet packet;
     Serial.readBytes((byte *)&packet, sizeof(Packet));
@@ -196,21 +196,22 @@ void loop(){
     uint8_t calculatedCRC = (uint8_t)crc8.calc();
 
     if (calculatedCRC == packet.crc) {
-      if (!hasHandshake) {
-        switch (packet.packetType) {
-          case SYN_PACKET:
-            sqn = 0;
-            expectedSeqNum = 0;
-            updatePendingState(packet.shield, packet.health);
-            sendPacket(ACK_PACKET);
-            break;
-          case ACK_PACKET:
-            applyPendingState();
-            hasHandshake = true;
-            break;
-        }
-      } else { // has handshake
-        handlePacket(packet);
+      switch (packet.packetType) {
+        case SYN_PACKET:
+          sqn = 0;
+          expectedSeqNum = 0;
+          hasHandshake = false;
+          updatePendingState(packet.shield, packet.health);
+          sendPacket(ACK_PACKET);
+          break;
+        case ACK_PACKET:
+          applyPendingState();
+          hasHandshake = true;
+          break;
+        default:
+          if (hasHandshake) {
+            handlePacket(packet);
+          }
       }
     }
   }
@@ -234,9 +235,9 @@ void loop(){
   }
 }
 
-void updateLED(){
-  int full_leds = health / 10; // Number of fully lit LEDs (each represents 10 HP)
-  int remainder = health % 10; // Remainder HP (for partial brightness)
+void updateLED() {
+  int full_leds = health / 10;  // Number of fully lit LEDs (each represents 10 HP)
+  int remainder = health % 10;  // Remainder HP (for partial brightness)
 
   // Turn on the appropriate number of LEDs
   for (int i = 0; i < NUMPIXELS; i++) {
@@ -252,5 +253,5 @@ void updateLED(){
       pixels.setPixelColor(i, pixels.Color(0, 0, 0, 0));
     }
   }
-  pixels.show();   
+  pixels.show();
 }

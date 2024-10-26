@@ -196,24 +196,25 @@ void loop() {
     calculatedCRC = (uint8_t)crc8.calc();
 
     if (calculatedCRC == packet.crc) {
-      if (!hasHandshake) {
-        switch (packet.packetType) {
-          case SYN_PACKET:
-            sqn = 0;
-            expectedSeqNum = 0;
-            updatePendingState(packet.shotID, packet.remainingBullets);
-            sendPacket(ACK_PACKET);
-            break;
-          case ACK_PACKET:
-            applyPendingState();
-            for (int i = 1; i <= currShot; i++) {  // pendingState applied to global currShot
-              updateLED(7 - i);
-            }
-            hasHandshake = true;
-            break;
-        }
-      } else { // has handshake
-        handlePacket(packet);
+      switch (packet.packetType) {
+        case SYN_PACKET:
+          sqn = 0;
+          expectedSeqNum = 0;
+          hasHandshake = false;
+          updatePendingState(packet.shotID, packet.remainingBullets);
+          sendPacket(ACK_PACKET);
+          break;
+        case ACK_PACKET:
+          applyPendingState();
+          for (int i = 1; i <= currShot; i++) {  // pendingState applied to global currShot
+            updateLED(7 - i);
+          }
+          hasHandshake = true;
+          break;
+        default:
+          if (hasHandshake) {
+            handlePacket(packet);
+          }
       }
     }
   }
@@ -228,6 +229,7 @@ void loop() {
       sendIMUData();
     }
 
+    // Gunshot packet timeout
     if (waitingForGunACK && (currMillis - lastGunShotTime) > RESPONSE_TIMEOUT) {
       sendPacket(GUNSHOT_PACKET);
       lastGunShotTime = currMillis;
