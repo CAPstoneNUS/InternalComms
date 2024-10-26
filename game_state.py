@@ -1,3 +1,5 @@
+import os
+import json
 import threading
 
 
@@ -123,6 +125,41 @@ class GameState:
     def __init__(self):
         self.vest_state = VestState()
         self.gun_state = GunState()
+
+        self.loadState()
+
+    def loadState(self):
+        try:
+            if os.path.exists('game_state.json'):
+                with open('game_state.json', 'r') as f:
+                    print("Loading from game_state.json...")
+                    saved_state = json.load(f)
+                    
+                    if 'shield' in saved_state or 'health' in saved_state:
+                        vest_data = {
+                            'shield': saved_state.get('shield', 0),
+                            'health': saved_state.get('health', 100)
+                        }
+                        self.vest_state.updateState(**vest_data)
+                        self.vest_state.applyState(**vest_data)
+                    
+                    if 'bullets' in saved_state:
+                        gun_data = {'bullets': saved_state['bullets']}
+                        self.gun_state.updateState(**gun_data)
+                        self.gun_state.applyState(**gun_data)
+                        
+        except Exception as e:
+            print(f"Error: {e}")
+            print("Applying default game state...")
+
+    def saveState(self):
+        try:
+            state = self.getState()
+            with open('game_state.json', 'w') as f:
+                json.dump(state, f)
+            print("Game state saved to game_state.json")
+        except Exception as e:
+            print(f"Error saving game state: {e}")
 
     def getState(self):
         return {**self.vest_state.getState(), **self.gun_state.getState()}

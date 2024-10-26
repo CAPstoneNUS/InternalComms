@@ -68,7 +68,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         # Gun and vest handling
         self._state_change_ip = False
         self._shots_fired = set()
-        self.registered_vestshots = set()
 
         # Sequencing
         self._sqn = 0
@@ -81,6 +80,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.corrupt_packet_count = 0
         self.total_corrupted_packets = 0
         self.dropped_packet_count = 0
+        self._timeout_resend_attempts = 0
 
         # Configuration parameters
         self.PLAYER_ID = self.config["game"]["player_id"]
@@ -91,6 +91,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.RESPONSE_TIMEOUT = self.config["time"]["response_timeout"]
         self.STATS_LOG_INTERVAL = config["time"]["stats_log_interval"]
         self.MAX_CORRUPT_PACKETS = config["storage"]["max_corrupt_packets"]
+        self.MAX_TIMEOUT_RESEND_ATTEMPTS = config["storage"]["max_timeout_resend_attempts"]
         self.PACKET_TYPES = {value for key, value in config["packet"].items()}
 
     def handleNotification(self, cHandle, data):
@@ -232,27 +233,41 @@ class BeetleDelegate(btle.DefaultDelegate):
                 f"Exceeded {self.MAX_CORRUPT_PACKETS} corrupt packets. Force disconnecting..."
             )
             self.beetle_connection.killBeetle()
-            self.beetle_connection.disconnect()
+            self.beetle_connection.forceDisconnect()
 
-    # ---------------------------- SN, HS, Timeouts & NAKs ---------------------------- #
+    # ---------------------------- SQN, HS, Timeouts & NAKs ---------------------------- #
 
     def resetSeqNum(self):
         self._sqn = 0
         self._expected_seq_num = 0
 
+    def sendLastStateChangePacket(self):
+        if not self._sent_packets:
+            self.logger.warning("No packets to resend.")
+            return
+
+        for packet in reversed(self._sent_packets):
+            if packet[0] == ord(UPDATE_STATE_PKT):
+                self.logger.warning("Resending last state change packet...")
+                self.beetle_connection.writeCharacteristic(packet)
+                return
+
     def handleStateTimeout(self):
-        if self._state_change_ip:
-            self.logger.warning(
-                f"State change packet timeout. Resending last packet..."
+        if self._timeout_resend_attempts >= self.MAX_TIMEOUT_RESEND_ATTEMPTS:
+            self.logger.error(
+                f"Exceeded {self.MAX_TIMEOUT_RESEND_ATTEMPTS} timeout resend attempts. Force disconnecting..."
             )
-            self.beetle_connection.writeCharacteristic(self._sent_packets[-1])  # FIXME
-            Timer(
-                self.RESPONSE_TIMEOUT,
-                self.handleStateTimeout,
-            ).start()
+            self.beetle_connection.killBeetle()
+            self.beetle_connection.forceDisconnect()
+
+        if self._state_change_ip:
+            self.logger.warning("State change packet timeout.")
+            self.sendLastStateChangePacket()
+            self._timeout_resend_attempts += 1
+            Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
 
     def handleNAKPacket(self, data):
-        self.logger.warning(">> NAK received.")
+        self.logger.warning(">> Received NAK.")
         requested_sqn = struct.unpack("B", data[:1])[0]
         self.logger.warning(f"<< Resending requested packet {requested_sqn}...")
         self.beetle_connection.writeCharacteristic(self._sent_packets[requested_sqn])
@@ -295,7 +310,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             "gyrY": gyrY,
             "gyrZ": gyrZ,
         }
-        
+
         if self.data_queue.qsize() > self.MAX_QUEUE_SIZE:
             self.logger.warning("Data queue full. Discarding oldest data...")
             self.data_queue.get()
@@ -316,11 +331,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         gun_packet = struct.pack("b2B16x", ord(UPDATE_STATE_PKT), 7 - bullets, bullets)
         crc = getCRC(gun_packet)
         gun_packet += struct.pack("B", crc)
+        self._sent_packets.append(gun_packet)
         self.beetle_connection.writeCharacteristic(gun_packet)
-        Timer(
-            self.RESPONSE_TIMEOUT,
-            self.handleStateTimeout,
-        ).start()
+        Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
 
     def handleGunStateACK(self, data):
         if self._state_change_ip:
@@ -348,11 +361,10 @@ class BeetleDelegate(btle.DefaultDelegate):
         vest_packet = struct.pack("<b2B16x", ord(UPDATE_STATE_PKT), shield, health)
         crc = getCRC(vest_packet)
         vest_packet += struct.pack("B", crc)
+        self._sent_packets.append(vest_packet)
         self.beetle_connection.writeCharacteristic(vest_packet)
-        Timer(
-            self.RESPONSE_TIMEOUT,
-            self.handleStateTimeout,
-        ).start()
+        Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
+
 
     def handleVestStateACK(self, data):
         if self._state_change_ip:
@@ -413,10 +425,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         crc = getCRC(reload_packet)
         reload_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(reload_packet)
-        Timer(
-            self.RESPONSE_TIMEOUT,
-            self.handleStateTimeout,
-        ).start()
+        Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
 
     def handleReloadACK(self):
         if self._state_change_ip:

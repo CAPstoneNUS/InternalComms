@@ -2,14 +2,17 @@ import os
 import csv
 import sys
 import crc8
+import yaml
+import json
 import logging
 from bluepy import btle
-import yaml
 
 
-def signalHandler(signal, frame, beetles):
-    print("Ctrl+C detected. Sending reset signals to all Beetles...")
+def signalHandler(signal, frame, game_state, beetles):
+    # Save the game state to a file
+    game_state.saveState()
 
+    # Send a reset signal to all Beetles
     for beetle in beetles:
         beetle.killBeetle()
 

@@ -3,6 +3,7 @@ data/
 logs/
 
 *.csv
+*.json
 *_test.py
 
 __pycache__/

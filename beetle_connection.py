@@ -209,6 +209,7 @@ class BeetleConnection:
 
         This method is typically called when an error occurs or when ending the connection.
         """
+        self.game_state.saveState()
         self.beetle.disconnect()
         self.beetle_state = BeetleState.DISCONNECTED
 
@@ -294,9 +295,6 @@ class BeetleConnection:
             print("Client-server vest states match.")
 
     def killBeetle(self):
-        """
-        Sends a reset command to the Beetle to reset the game state.
-        """
         self.logger.info(
             f"---------------------- KILLING BEETLE ----------------------"
         )

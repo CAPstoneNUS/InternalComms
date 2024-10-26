@@ -54,7 +54,7 @@ def main():
         beetle_threads.append(thread)
         thread.start()
 
-    signal.signal(signal.SIGINT, lambda sig, frame: signalHandler(sig, frame, beetle_conns))
+    signal.signal(signal.SIGINT, lambda sig, frame: signalHandler(sig, frame, game_state, beetle_conns))
 
     consumer_thread = threading.Thread(target=dataConsumer, args=(config, sender_queue))
     consumer_thread.start()
