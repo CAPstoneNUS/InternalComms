@@ -8,12 +8,12 @@ game:
 
 device:
   # ------------ PLAYER 1 ------------ #
-  beetle_1: "F4:B8:5E:42:61:38" # gun
+  # beetle_1: "F4:B8:5E:42:61:38" # gun
   # beetle_2: "D0:5F:B8:56:DF:70" # imu
   # beetle_3: "F4:B8:5E:42:67:21" # vest
 
   # ------------ PLAYER 2 ------------ #
-  # beetle_1: "50:65:83:77:57:F3" # gun2
+  beetle_1: "50:65:83:77:57:F3" # gun2
   beetle_2: "F4:B8:5E:42:6D:37" # imu2
   beetle_3: "F4:B8:5E:42:6D:5D" # vest2
 
@@ -33,7 +33,8 @@ folder:
 storage:
   mag_size: 6
   packet_size: 20
-  max_buffer_size: 1000
+  max_corrupt_packets: 20
+  max_buffer_size: 500 # about 1+ seconds of data
   max_queue_size: 2000
 
 time:
@@ -44,5 +45,12 @@ time:
   max_notif_wait_time: 300
 
 packet:
-  HS_SYN_PKT: "S"
-
+  HS_SYNACK_PKT: "A"
+  IMU_DATA_PKT: "M"
+  GUNSHOT_PKT: "G"
+  RELOAD_PKT: "R"
+  VESTSHOT_PKT: "V"
+  NAK_PKT: "N"
+  UPDATE_STATE_PKT: "U"
+  GUNSTATE_ACK_PKT: "X"
+  VESTSTATE_ACK_PKT: "W"

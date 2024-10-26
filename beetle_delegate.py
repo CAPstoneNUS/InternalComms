@@ -37,7 +37,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         start_time (float): Start time for calculating transmission speed.
         total_window_data (int): Total size of data received in bytes. Reset everytime stats are displayed.
-        total_data (int): Total size of data received in bytes since start.
 
         frag_packet_count (int): Count of fragmented packets received.
         corrupt_packet_count (int): Count of corrupted packets received.
@@ -62,10 +61,9 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.game_state = game_state
         self.buffer = deque()
 
-        # Transmission speed stats
+        # Timers
         self.start_time = time.time()
-        self.total_window_data = 0
-        self.total_data = 0
+        self.last_successful_packet_time = time.time()
 
         # Gun and vest handling
         self._state_change_ip = False
@@ -78,19 +76,22 @@ class BeetleDelegate(btle.DefaultDelegate):
         self._sent_packets = []
 
         # Counters
+        self.total_window_data = 0
         self.frag_packet_count = 0
         self.corrupt_packet_count = 0
         self.total_corrupted_packets = 0
         self.dropped_packet_count = 0
 
         # Configuration parameters
-        self.player_id = self.config["game"]["player_id"]
+        self.PLAYER_ID = self.config["game"]["player_id"]
         self.MAG_SIZE = self.config["storage"]["mag_size"]
         self.MAX_BUFFER_SIZE = self.config["storage"]["max_buffer_size"]
         self.MAX_QUEUE_SIZE = self.config["storage"]["max_queue_size"]
         self.PACKET_SIZE = self.config["storage"]["packet_size"]
         self.RESPONSE_TIMEOUT = self.config["time"]["response_timeout"]
         self.STATS_LOG_INTERVAL = config["time"]["stats_log_interval"]
+        self.MAX_CORRUPT_PACKETS = config["storage"]["max_corrupt_packets"]
+        self.PACKET_TYPES = {value for key, value in config["packet"].items()}
 
     def handleNotification(self, cHandle, data):
         """
@@ -116,101 +117,122 @@ class BeetleDelegate(btle.DefaultDelegate):
         #     self.dropped_packet_count += 1
         #     return
 
-        # Add incoming data to buffer
-        self.buffer.extend(data)
-        self.total_data += len(data)
+        try:
+            # Add incoming data to buffer
+            self.buffer.extend(data)
 
-        while len(self.buffer) >= self.PACKET_SIZE:
-            # Extract packet from buffer
-            packet = bytes(itertools.islice(self.buffer, self.PACKET_SIZE))
-            for _ in range(self.PACKET_SIZE):
-                self.buffer.popleft()
+            # Process packets in buffer
+            while len(self.buffer) >= self.PACKET_SIZE:
+                # Extract packet
+                packet = bytes(itertools.islice(self.buffer, self.PACKET_SIZE))
+                for _ in range(self.PACKET_SIZE):
+                    self.buffer.popleft()
 
-            # Parse packet type and CRC
-            packet_type = chr(packet[0])
-            calculated_crc = getCRC(packet[:-1])
-            true_crc = struct.unpack("<B", packet[-1:])[0]
+                # Validate packet type
+                packet_type = chr(packet[0])
+                if packet_type not in self.PACKET_TYPES:
+                    self.logger.error(f"Unknown packet type: {packet_type}")
+                    continue
 
-            # Check CRC
-            if calculated_crc != true_crc:
-                self.logger.error("CRC mismatch. Dropping packet...")
-                # self.logger.error("Packet corrupted. Requesting retransmission...")
-                # self.sendNAKPacket()
-                self.corrupt_packet_count += 1
-                self.total_corrupted_packets += 1
-                if self.corrupt_packet_count >= 20:  # 1 second of corrupted packets
-                    self.logger.error(
-                        "Corrupt packet limit reached. Force disconnecting..."
-                    )
-                    self.beetle_connection.killBeetle()
-                    self.beetle_connection.forceDisconnect()
-                    self.corrupt_packet_count = 0
-                return
+                # Validate CRC
+                calculated_crc = getCRC(packet[:-1])
+                true_crc = struct.unpack("<B", packet[-1:])[0]
+                if calculated_crc != true_crc:
+                    self.handleCorruptPacket(packet_type)
+                    continue
 
-            payload = packet[1:-1]
+                # Extract payload
+                payload = packet[1:-1]
 
-            if packet_type == IMU_DATA_PKT:
-                self.handleIMUPacket(payload)
-                continue
+                if packet_type == IMU_DATA_PKT:
+                    self.handleIMUPacket(payload)
+                    continue
 
-            if packet_type == NAK_PKT:
-                self.handleNAKPacket(payload)
-                continue
+                if packet_type == NAK_PKT:
+                    self.handleNAKPacket(payload)
+                    continue
 
-            # Sequence number handling
-            beetle_sqn = struct.unpack("B", payload[:1])[0]
-            self.logger.info(
-                f"Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}."
-            )
-            if beetle_sqn != self._expected_seq_num:
-                self.logger.error(
-                    f"Sequence number mismatch. Expected SQN {self._expected_seq_num} but got SQN {beetle_sqn} instead."
+                # Validate sequence number
+                beetle_sqn = struct.unpack("B", payload[:1])[0]
+                self.logger.info(
+                    f"Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}."
                 )
-                self.sendNAKPacket()
-                return
+                if beetle_sqn != self._expected_seq_num:
+                    self.logger.error(
+                        f"Sequence number mismatch. Expected SQN {self._expected_seq_num} but got SQN {beetle_sqn} instead."
+                    )
+                    self.sendNAKPacket()
+                    return
+                
+                # Update successful packet time
+                self.last_successful_packet_time = time.time()
+                
+                # Handle packet
+                if packet_type == HS_SYNACK_PKT:
+                    self.handleSYNACKPacket()
+                elif packet_type == GUNSHOT_PKT:
+                    self.handleGunPacket(payload)
+                elif packet_type == VESTSHOT_PKT:
+                    self.handleVestPacket(payload)
+                elif packet_type == RELOAD_PKT:
+                    self.handleReloadACK()
+                elif packet_type == GUNSTATE_ACK_PKT:
+                    self.handleGunStateACK(payload)
+                elif packet_type == VESTSTATE_ACK_PKT:
+                    self.handleVestStateACK(payload)
+                else:
+                    self.logger.error(f"Unknown packet type: {packet_type}")
 
-            # Packet handling
-            if packet_type == HS_SYNACK_PKT:
-                self.handleSYNACKPacket()
-            elif packet_type == GUNSHOT_PKT:
-                self.handleGunPacket(payload)
-            elif packet_type == VESTSHOT_PKT:
-                self.handleVestPacket(payload)
-            elif packet_type == RELOAD_PKT:
-                self.handleReloadACK()
-            elif packet_type == GUNSTATE_ACK_PKT:
-                self.handleGunStateACK(payload)
-            elif packet_type == VESTSTATE_ACK_PKT:
-                self.handleVestStateACK(payload)
-            else:
-                self.logger.error(f"Unknown packet type: {packet_type}")
+            # Check for fragmented packets
+            if len(self.buffer) > 0:
+                self.frag_packet_count += 1
 
-        # Check for fragmented packets
-        if len(self.buffer) > 0:
-            self.frag_packet_count += 1
+            # Check buffer size and discard oldest data if overflow
+            if len(self.buffer) > self.MAX_BUFFER_SIZE:
+                overflow = len(self.buffer) - self.MAX_BUFFER_SIZE
+                self.logger.warning(f"Buffer overflow. Discarding {overflow} bytes.")
+                for _ in range(overflow):
+                    self.buffer.popleft()
 
-        # Check buffer size and discard oldest data if overflow
-        if len(self.buffer) > self.MAX_BUFFER_SIZE:
-            overflow = len(self.buffer) - self.MAX_BUFFER_SIZE
-            self.logger.warning(f"Buffer overflow. Discarding {overflow} bytes.")
-            for _ in range(overflow):
-                self.buffer.popleft()
+            # # Display stats every 5 seconds
+            # end_time = time.time()
+            # time_diff = end_time - self.start_time
+            # self.total_window_data += len(data)
+            # if time_diff >= self.STATS_LOG_INTERVAL:
+            #     speed_kbps = getTransmissionSpeed(time_diff, self.total_window_data)
+            #     logPacketStats(
+            #         self.logger,
+            #         speed_kbps,
+            #         self.total_corrupted_packets,
+            #         self.dropped_packet_count,
+            #         self.frag_packet_count,
+            #     )
+            #     self.start_time = time.time()
+            #     self.total_window_data = 0
 
-        # # Display stats every 5 seconds
-        # end_time = time.time()
-        # time_diff = end_time - self.start_time
-        # self.total_window_data += len(data)
-        # if time_diff >= self.STATS_LOG_INTERVAL:
-        #     speed_kbps = getTransmissionSpeed(time_diff, self.total_window_data)
-        #     logPacketStats(
-        #         self.logger,
-        #         speed_kbps,
-        #         self.total_corrupted_packets,
-        #         self.dropped_packet_count,
-        #         self.frag_packet_count,
-        #     )
-        #     self.start_time = time.time()
-        #     self.total_window_data = 0
+        except Exception as e:
+            self.logger.error(f"Error handling notification: {e}")
+
+    def handleCorruptPacket(self, packet_type):
+        self.corrupt_packet_count += 1
+        self.total_corrupted_packets += 1
+
+        if packet_type == IMU_DATA_PKT:
+            self.logger.warning(">> Corrupt IMU data packet. Dropping packet...")
+        else:
+            self.logger.warning(f">> Corrupt {packet_type} packet. Sending NAK...")
+            self.sendNAKPacket()
+
+        if time.time() - self.last_successful_packet_time > 1:
+            self.logger.warning("Clearing buffer...")
+            self.buffer.clear()
+            self.corrupt_packet_count = 0
+        elif self.corrupt_packet_count >= self.MAX_CORRUPT_PACKETS:
+            self.logger.error(
+                f"Exceeded {self.MAX_CORRUPT_PACKETS} corrupt packets. Force disconnecting..."
+            )
+            self.beetle_connection.killBeetle()
+            self.beetle_connection.disconnect()
 
     # ---------------------------- SN, HS, Timeouts & NAKs ---------------------------- #
 
@@ -265,7 +287,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         imu_data = {
             "id": self.beetle_id,
             "type": IMU_DATA_PKT,
-            "playerID": self.player_id,
+            "playerID": self.PLAYER_ID,
             "accX": accX,
             "accY": accY,
             "accZ": accZ,
@@ -273,6 +295,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             "gyrY": gyrY,
             "gyrZ": gyrZ,
         }
+        
         if self.data_queue.qsize() > self.MAX_QUEUE_SIZE:
             self.logger.warning("Data queue full. Discarding oldest data...")
             self.data_queue.get()
@@ -356,7 +379,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                 {
                     "id": self.beetle_id,
                     "type": GUNSHOT_PKT,
-                    "playerID": self.player_id,
+                    "playerID": self.PLAYER_ID,
                 }
             )
             self._shots_fired.add(shotID)
@@ -413,7 +436,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             {
                 "id": self.beetle_id,
                 "type": VESTSHOT_PKT,
-                "playerID": self.player_id,
+                "playerID": self.PLAYER_ID,
             }
         )
         beetle_sqn, shield, health = struct.unpack("<3B15x", data)

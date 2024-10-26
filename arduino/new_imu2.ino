@@ -19,7 +19,7 @@ bool hasHandshake = false;
 unsigned long previousIMUMillis = 0;    // Variable to store the last time readIMU() was executed
 const unsigned long IMUinterval = 50;  // Interval in milliseconds (100 ms)
 
-struct ACKPacket {
+struct Packet {
   char packetType;
   byte padding[18];
   uint8_t crc;
@@ -37,16 +37,17 @@ struct IMUPacket {
   uint8_t crc;
 };
 
-void sendACKPacket() {
-  ACKPacket ackPacket;
-  ackPacket.packetType = ACK_PACKET;
-  memset(ackPacket.padding, 0, sizeof(ackPacket.padding));
-
+void sendPacket(char packetType) {
+  // Prepare packet
+  Packet packet;
+  packet.packetType = packetType;
+  memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
-  crc8.add((uint8_t *)&ackPacket, sizeof(ACKPacket) - sizeof(ackPacket.crc));
-  ackPacket.crc = (uint8_t)crc8.calc();
+  crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
+  packet.crc = (uint8_t)crc8.calc();
 
-  Serial.write((byte *)&ackPacket, sizeof(ackPacket));
+  // Send packet
+  Serial.write((byte *)&packet, sizeof(Packet));
 }
 
 void sendIMUData() {
@@ -80,22 +81,27 @@ void setup() {
 
 void loop() {
   if (Serial.available() >= 20) {
-    byte receivedPacket[20];
-    Serial.readBytes(receivedPacket, 20);
-    char packetType = receivedPacket[0];
+    Packet packet;
+    Serial.readBytes((byte *)&packet, sizeof(Packet));
 
     crc8.restart();
-    crc8.add((uint8_t *)&receivedPacket, sizeof(receivedPacket) - sizeof(byte));
+    crc8.add((uint8_t *)&packet, sizeof(packet) - sizeof(byte));
     uint8_t calculatedCRC = (uint8_t)crc8.calc();
-    uint8_t trueCRC = receivedPacket[19];
 
-    if (calculatedCRC == trueCRC) {
-      if (packetType == SYN_PACKET) {
-        sendACKPacket();
-      } else if (packetType == ACK_PACKET) {
-        hasHandshake = true;
-      } else if (packetType == KILL_PACKET) {
-        asm volatile ("jmp 0");
+    if (calculatedCRC == packet.crc) {
+      switch (packet.packetType) {
+        case SYN_PACKET:
+          hasHandshake = false;
+          sendPacket(ACK_PACKET);
+          break;
+        case ACK_PACKET:
+          hasHandshake = true;
+          break;
+        case KILL_PACKET:
+          asm volatile ("jmp 0");
+          break; // idt needed also
+        default:
+          break;
       }
     }
   }
@@ -111,16 +117,13 @@ void loop() {
 
 void mpu_setup() {
   if (!mpu.begin()) {
-    // Serial.println("Failed to find MPU6050 chip");
     while (1) {
       delay(10);
     }
   }
-  // Serial.println("MPU6050 Found!");
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-  // Serial.println("");
   delay(100);
 }
 
