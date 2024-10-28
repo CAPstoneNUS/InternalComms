@@ -131,14 +131,15 @@ class RelayClient(threading.Thread):
                 # {
                 # "hp": 100,
                 # "bullets": 6,
-                # "shield_hp": 30,
+                # "hp_shield": 30,
                 # }
                 # ----------------------------------------------------------- #
                 decoded_data = json.loads(decoded_data)
                 if (
                     "bullets" in decoded_data
                     and "hp" in decoded_data
-                    and "shield_hp" in decoded_data
+                    and "hp_shield" in decoded_data
+                    and "player_id" in decoded_data
                 ):
                     self.safePut(
                         self.server_gun_state,
@@ -148,7 +149,7 @@ class RelayClient(threading.Thread):
                         self.server_vest_state,
                         {
                             "health": decoded_data["hp"],
-                            "shield": decoded_data["shield_hp"],
+                            "shield": decoded_data["hp_shield"],
                         },
                     )
                 else:
