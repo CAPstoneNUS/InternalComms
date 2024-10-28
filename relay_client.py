@@ -3,7 +3,13 @@ import json
 import threading
 from utils import writeCSV
 from collections import deque
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import (
+    socket,
+    AF_INET,
+    SOCK_STREAM,
+    error as socket_error,
+    timeout as socket_timeout,
+)
 
 
 class RelayClient(threading.Thread):
@@ -95,10 +101,13 @@ class RelayClient(threading.Thread):
             msg_str = json.dumps(data)
             msg_tosend = f"{len(msg_str)}_{msg_str}"
             self.relayclient.sendall(msg_tosend.encode("utf-8"))
-        except socket.timeout:
-            print("Socket timed out")
-        except socket.error as e:
+        except socket_timeout as e:
+            print(f"Socket send timed out: {e}")
+        except socket_error as e:
             print(f"Failed to send from relay client to Ultra96: {e}")
+            self.relayclient.close()
+        except Exception as e:
+            print(f"Unexpected error while sending data: {e}")
             self.relayclient.close()
 
     def receive(self):
@@ -155,12 +164,18 @@ class RelayClient(threading.Thread):
                                     },
                                 )
                         else:
-                            raise KeyError("One or more keys missing from the dictionary.")
+                            raise KeyError(
+                                "One or more keys missing from the dictionary."
+                            )
                 else:
                     raise ValueError("Received empty data.")
 
             except BlockingIOError:
                 time.sleep(0.1)
+            except socket_error as e:
+                print(f"Socket error while receiving data: {e}")
+                self.relayclient.close()
+                break
             except Exception as e:
                 print(f"Error receiving data: {e}")
                 self.relayclient.close()
