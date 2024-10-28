@@ -18,6 +18,7 @@ class RelayClient(threading.Thread):
         self.port = self.config["device"]["ultra_port"]
         self.gun_id = self.config["device"]["beetle_1"][-2:]
         self.ankle_id = self.config["device"]["beetle_2"][-2:]
+        self.player_id = self.config["game"]["player_id"]
 
         self.lock = threading.Lock()
         self.gun_buffer = deque(maxlen=1)
@@ -104,56 +105,60 @@ class RelayClient(threading.Thread):
         while True:
             try:
                 data = b""
+                # Loop to receive data until it ends with '_'
                 while not data.endswith(b"_"):
                     _d = self.relayclient.recv(1)
                     if not _d:
                         data = b""
                         break
                     data += _d
-                    if len(data) == 0:
-                        break
-                data = data.decode("utf-8")
-                length = int(data[:-1])
 
-                data = b""
-                while len(data) < length:
-                    _d = self.relayclient.recv(length - len(data))
-                    if not _d:
-                        data = b""
-                        break
-                    data += _d
-                    if len(data) == 0:
-                        break
-                decoded_data = data.decode("utf-8")
-                print(f"\nServer sent: {decoded_data}\n")
-                # ----------------------------------------------------------- #
-                # Assuming the decoded data comes in the form,
-                # {
-                # "hp": 100,
-                # "bullets": 6,
-                # "hp_shield": 30,
-                # }
-                # ----------------------------------------------------------- #
-                decoded_data = json.loads(decoded_data)
-                if (
-                    "bullets" in decoded_data
-                    and "health" in decoded_data
-                    and "hp_shield" in decoded_data
-                    and "player_id" in decoded_data
-                ):
-                    self.safePut(
-                        self.server_gun_state,
-                        {"bullets": decoded_data["bullets"]},
-                    )
-                    self.safePut(
-                        self.server_vest_state,
-                        {
-                            "health": decoded_data["health"],
-                            "shield": decoded_data["hp_shield"],
-                        },
-                    )
+                # Decode and parse length if data is not empty
+                if data:
+                    data = data.decode("utf-8")
+                    if data[:-1].isdigit():
+                        length = int(data[:-1])
+                    else:
+                        raise ValueError("Received length is not a valid integer.")
+
+                    data = b""
+                    while len(data) < length:
+                        _d = self.relayclient.recv(length - len(data))
+                        if not _d:
+                            data = b""
+                            break
+                        data += _d
+
+                    # Decode and process JSON data if received completely
+                    if data:
+                        decoded_data = data.decode("utf-8")
+                        print(f"\nServer sent: {decoded_data}\n")
+
+                        # Assuming JSON format in decoded_data
+                        decoded_data = json.loads(decoded_data)
+                        if (
+                            "bullets" in decoded_data
+                            and "health" in decoded_data
+                            and "hp_shield" in decoded_data
+                            and "player_id" in decoded_data
+                        ):
+                            if decoded_data["player_id"] == self.player_id:
+                                self.safePut(
+                                    self.server_gun_state,
+                                    {"bullets": decoded_data["bullets"]},
+                                )
+                                self.safePut(
+                                    self.server_vest_state,
+                                    {
+                                        "health": decoded_data["health"],
+                                        "shield": decoded_data["hp_shield"],
+                                    },
+                                )
+                        else:
+                            raise KeyError("One or more keys missing from the dictionary.")
                 else:
-                    raise KeyError("One or more keys missing from the dictionary.")
+                    raise ValueError("Received empty data.")
+
             except BlockingIOError:
                 time.sleep(0.1)
             except Exception as e:
