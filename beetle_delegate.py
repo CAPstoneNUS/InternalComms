@@ -302,7 +302,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         imu_data = {
             "id": self.beetle_id,
             "type": IMU_DATA_PKT,
-            "playerID": self.PLAYER_ID,
+            "player_id": self.PLAYER_ID,
             "accX": accX,
             "accY": accY,
             "accZ": accZ,
@@ -391,7 +391,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                 {
                     "id": self.beetle_id,
                     "type": GUNSHOT_PKT,
-                    "playerID": self.PLAYER_ID,
+                    "player_id": self.PLAYER_ID,
                 }
             )
             self._shots_fired.add(shotID)
@@ -445,7 +445,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             {
                 "id": self.beetle_id,
                 "type": VESTSHOT_PKT,
-                "playerID": self.PLAYER_ID,
+                "player_id": self.PLAYER_ID,
             }
         )
         beetle_sqn, shield, health = struct.unpack("<3B15x", data)

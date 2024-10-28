@@ -70,7 +70,7 @@ class RelayClient(threading.Thread):
 
         paired_data = {
             "type": gun_data["type"],  # Same for both
-            "playerID": gun_data["playerID"],  # Same for both
+            "player_id": gun_data["player_id"],  # Same for both
             # Gun IMU data
             "gunAccX": gun_data["accX"],
             "gunAccY": gun_data["accY"],

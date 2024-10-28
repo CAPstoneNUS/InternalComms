@@ -4,18 +4,18 @@
 # 3. Change the IP address to the IP address of the Ultra96
 
 game:
-  player_id: 2
+  player_id: 1
 
 device:
   # ------------ PLAYER 1 ------------ #
-  # beetle_1: "F4:B8:5E:42:61:38" # gun
-  # beetle_2: "D0:5F:B8:56:DF:70" # imu
-  # beetle_3: "F4:B8:5E:42:67:21" # vest
+  beetle_1: "F4:B8:5E:42:61:38" # gun
+  beetle_2: "F4:B8:5E:42:67:21" # imu
+  beetle_3: "D0:5F:B8:56:DF:70" # vest
 
   # ------------ PLAYER 2 ------------ #
-  beetle_1: "50:65:83:77:57:F3" # gun2
-  beetle_2: "F4:B8:5E:42:6D:37" # imu2
-  beetle_3: "F4:B8:5E:42:6D:5D" # vest2
+  # beetle_1: "50:65:83:77:57:F3" # gun2
+  # beetle_2: "F4:B8:5E:42:6D:37" # imu2
+  # beetle_3: "F4:B8:5E:42:6D:5D" # vest2
 
 # by the time this repo is made public, the IP address will have changed
 # hence its not a security risk
