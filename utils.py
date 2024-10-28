@@ -34,6 +34,7 @@ def writeCSV(file_path, paired_data):
     # Define the fieldnames for the CSV (headers)
     fieldnames = [
         "type",
+        "player_id",
         "gunAccX",
         "gunAccY",
         "gunAccZ",
