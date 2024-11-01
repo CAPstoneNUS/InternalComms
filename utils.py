@@ -20,9 +20,6 @@ def signalHandler(signal, frame, game_state, beetles):
 
 
 def loadConfig():
-    """
-    Load the configuration from the config.yaml file.
-    """
     with open("config.yaml", "r") as file:
         return yaml.safe_load(file)
 
@@ -33,7 +30,7 @@ def collectData(data_queue, config):
 
     try:
         while True:
-            data = data_queue.get(timeout=1)
+            data = data_queue.get()
             if data["type"] == "M":
                 if data["id"] == config["device"]["beetle_1"][-2:]:
                     gun_buffer.append(data)
@@ -46,19 +43,23 @@ def collectData(data_queue, config):
     except Exception as e:
         print(f"Error in data collection: {e}")
                 
+
 def pairIMUData(gun_data, ankle_data):
-    if gun_data["type"] != "M" or ankle_data["type"] != "M":
-        raise ValueError("Invalid data types for pairing.")
+    # Check that both data have the same packet type (for consistency)
+    if gun_data["type"] != ankle_data["type"]:
+        raise ValueError("Mismatched packet types between gun and ankle data")
 
     paired_data = {
-        "type": gun_data["type"],
-        "player_id": gun_data["player_id"],
+        "type": gun_data["type"],  # Same for both
+        "player_id": gun_data["player_id"],  # Same for both
+        # Gun IMU data
         "gunAccX": gun_data["accX"],
         "gunAccY": gun_data["accY"],
         "gunAccZ": gun_data["accZ"],
         "gunGyrX": gun_data["gyrX"],
         "gunGyrY": gun_data["gyrY"],
         "gunGyrZ": gun_data["gyrZ"],
+        # Ankle IMU data
         "ankleAccX": ankle_data["accX"],
         "ankleAccY": ankle_data["accY"],
         "ankleAccZ": ankle_data["accZ"],
@@ -68,6 +69,7 @@ def pairIMUData(gun_data, ankle_data):
     }
 
     return paired_data
+
 
 def writeCSV(file_path, paired_data):
     # Check if the CSV file already exists
@@ -101,35 +103,6 @@ def writeCSV(file_path, paired_data):
 
         # Append the data to the CSV file
         writer.writerow(paired_data)
-
-# def dataConsumer(config, data_queue):
-#     csv_files = {}
-#     csv_writers = {}
-
-#     data_dir = config["folder"]["data"]
-#     if not os.path.exists(data_dir):
-#         os.makedirs(data_dir)
-#     data_path = os.path.join(os.getcwd(), data_dir)
-
-#     while True:
-#         try:
-#             data = data_queue.get(timeout=1)
-#             id_and_type = f"{data["id"]}_{data["type"]}"
-
-#             if id_and_type not in csv_files:
-#                 filename = os.path.join(data_path, f"{id_and_type}_data.csv")
-#                 csv_files[id_and_type] = open(filename, "w", newline="")
-#                 csv_writers[id_and_type] = csv.DictWriter(
-#                     csv_files[id_and_type], fieldnames=data.keys()
-#                 )
-#                 csv_writers[id_and_type].writeheader()
-
-#             csv_writers[id_and_type].writerow(data)
-#             csv_files[id_and_type].flush()
-
-#         except Exception as e:
-#             # print(f"Filewrite error - no data in queue.")
-#             pass
 
 
 def setupLogger(config, mac_address):
