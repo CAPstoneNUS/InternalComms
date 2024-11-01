@@ -133,6 +133,8 @@ class BeetleDelegate(btle.DefaultDelegate):
                 packet_type = chr(packet[0])
                 if packet_type not in self.PACKET_TYPES:
                     self.logger.error(f"Unknown packet type: {packet_type}")
+                    self.logger.warning("Clearing buffer...")
+                    self.buffer.clear()
                     continue
 
                 # Validate CRC

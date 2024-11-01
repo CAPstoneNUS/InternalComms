@@ -269,7 +269,7 @@ class BeetleConnection:
             data (int): Dictionary containing remaining bullet from relay server.
         """
         bullets = data["bullets"]
-        if bullets == self.MAG_SIZE:
+        if bullets == self.MAG_SIZE and self.game_state.getState()["bullets"] == 0:
             self.game_state.reload()
             self.beetle_delegate.sendReloadPacket()
         elif not bullets == self.game_state.getState()["bullets"]:
