@@ -130,20 +130,10 @@ class BeetleConnection:
                         self.logger.error("Failed to receive notifs. Disconnecting...")
                         self.forceDisconnect()
 
-            except btle.BTLEDisconnectError:
-                self.logger.error(
-                    f"Disconnected. Reconnecting in {self.RECONNECTION_INTERVAL} second(s)..."
-                )
+            except btle.BTLEDisconnectError or btle.BTLEException or Exception as e:
+                self.logger.error(f"Error occurred: {e}")
                 self.forceDisconnect()
                 time.sleep(self.RECONNECTION_INTERVAL)
-
-            except btle.BTLEException as e:
-                self.logger.error(f"Bluetooth error occurred: {e}")
-                self.forceDisconnect()
-
-            except Exception as e:
-                self.logger.exception(f"Unexpected error occurred: {e}")
-                self.forceDisconnect()
 
     def openConnection(self):
         """

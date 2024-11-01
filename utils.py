@@ -3,9 +3,9 @@ import csv
 import sys
 import crc8
 import yaml
-import json
 import logging
 from bluepy import btle
+from collections import deque
 
 
 def signalHandler(signal, frame, game_state, beetles):
@@ -26,6 +26,48 @@ def loadConfig():
     with open("config.yaml", "r") as file:
         return yaml.safe_load(file)
 
+
+def collectData(data_queue, config):
+    gun_buffer = deque(maxlen=1)
+    ankle_buffer = deque(maxlen=1)
+
+    try:
+        while True:
+            data = data_queue.get(timeout=1)
+            if data["type"] == "M":
+                if data["id"] == config["device"]["beetle_1"][-2:]:
+                    gun_buffer.append(data)
+                elif data["id"] == config["device"]["beetle_2"][-2:]:
+                    ankle_buffer.append(data)
+                
+                if gun_buffer and ankle_buffer:
+                    paired_data = pairIMUData(gun_buffer[0], ankle_buffer[0])
+                    writeCSV("paired_data.csv", paired_data)
+    except Exception as e:
+        print(f"Error in data collection: {e}")
+                
+def pairIMUData(gun_data, ankle_data):
+    if gun_data["type"] != "M" or ankle_data["type"] != "M":
+        raise ValueError("Invalid data types for pairing.")
+
+    paired_data = {
+        "type": gun_data["type"],
+        "player_id": gun_data["player_id"],
+        "gunAccX": gun_data["accX"],
+        "gunAccY": gun_data["accY"],
+        "gunAccZ": gun_data["accZ"],
+        "gunGyrX": gun_data["gyrX"],
+        "gunGyrY": gun_data["gyrY"],
+        "gunGyrZ": gun_data["gyrZ"],
+        "ankleAccX": ankle_data["accX"],
+        "ankleAccY": ankle_data["accY"],
+        "ankleAccZ": ankle_data["accZ"],
+        "ankleGyrX": ankle_data["gyrX"],
+        "ankleGyrY": ankle_data["gyrY"],
+        "ankleGyrZ": ankle_data["gyrZ"],
+    }
+
+    return paired_data
 
 def writeCSV(file_path, paired_data):
     # Check if the CSV file already exists
@@ -60,45 +102,34 @@ def writeCSV(file_path, paired_data):
         # Append the data to the CSV file
         writer.writerow(paired_data)
 
-def dataConsumer(config, data_queue):
-    """
-    Consumer function to process data from the queue and write it to CSV files.
+# def dataConsumer(config, data_queue):
+#     csv_files = {}
+#     csv_writers = {}
 
-    This function reads data from the queue and writes it to separate CSV files
-    based on the Beetle ID and packet type. It creates a new CSV file and appends
-    the data to the file as it arrives.
+#     data_dir = config["folder"]["data"]
+#     if not os.path.exists(data_dir):
+#         os.makedirs(data_dir)
+#     data_path = os.path.join(os.getcwd(), data_dir)
 
-    Args:
-        config (dict): The configuration dictionary loaded from the config.yaml file.
-        data_queue (Queue): The shared queue object for data storage.
-    """
-    csv_files = {}
-    csv_writers = {}
+#     while True:
+#         try:
+#             data = data_queue.get(timeout=1)
+#             id_and_type = f"{data["id"]}_{data["type"]}"
 
-    data_dir = config["folder"]["data"]
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
-    data_path = os.path.join(os.getcwd(), data_dir)
+#             if id_and_type not in csv_files:
+#                 filename = os.path.join(data_path, f"{id_and_type}_data.csv")
+#                 csv_files[id_and_type] = open(filename, "w", newline="")
+#                 csv_writers[id_and_type] = csv.DictWriter(
+#                     csv_files[id_and_type], fieldnames=data.keys()
+#                 )
+#                 csv_writers[id_and_type].writeheader()
 
-    while True:
-        try:
-            data = data_queue.get(timeout=1)
-            id_and_type = f"{data["id"]}_{data["type"]}"
+#             csv_writers[id_and_type].writerow(data)
+#             csv_files[id_and_type].flush()
 
-            if id_and_type not in csv_files:
-                filename = os.path.join(data_path, f"{id_and_type}_data.csv")
-                csv_files[id_and_type] = open(filename, "w", newline="")
-                csv_writers[id_and_type] = csv.DictWriter(
-                    csv_files[id_and_type], fieldnames=data.keys()
-                )
-                csv_writers[id_and_type].writeheader()
-
-            csv_writers[id_and_type].writerow(data)
-            csv_files[id_and_type].flush()
-
-        except Exception as e:
-            # print(f"Filewrite error - no data in queue.")
-            pass
+#         except Exception as e:
+#             # print(f"Filewrite error - no data in queue.")
+#             pass
 
 
 def setupLogger(config, mac_address):

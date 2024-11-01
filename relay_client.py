@@ -141,7 +141,7 @@ class RelayClient(threading.Thread):
                     # Decode and process JSON data if received completely
                     if data:
                         decoded_data = data.decode("utf-8")
-                        print(f"\nServer sent: {decoded_data}\n")
+                        print(f"Server sent: {decoded_data}")
 
                         # Assuming JSON format in decoded_data
                         decoded_data = json.loads(decoded_data)

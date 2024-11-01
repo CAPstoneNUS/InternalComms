@@ -271,6 +271,9 @@ class BeetleDelegate(btle.DefaultDelegate):
     def handleNAKPacket(self, data):
         self.logger.warning(">> Received NAK.")
         requested_sqn = struct.unpack("B", data[:1])[0]
+        if len(self._sent_packets) < requested_sqn:
+            self.logger.error(f"Length of sent packets {len(self._sent_packets)} is less than requested sequence number {requested_sqn}. Unable to send NAK.")
+            return
         self.logger.warning(f"<< Resending requested packet {requested_sqn}...")
         self.beetle_connection.writeCharacteristic(self._sent_packets[requested_sqn])
 
@@ -330,7 +333,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         self._state_change_ip = True
         self.logger.info(f"<< Sending GUN STATE packet...")
-        gun_packet = struct.pack("b2B16x", ord(UPDATE_STATE_PKT), 7 - bullets, bullets)
+        gun_packet = struct.pack("b3B15x", ord(UPDATE_STATE_PKT), self._sqn, 7 - bullets, bullets)
         crc = getCRC(gun_packet)
         gun_packet += struct.pack("B", crc)
         self._sent_packets.append(gun_packet)
@@ -360,7 +363,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         self._state_change_ip = True
         self.logger.info(f"<< Sending VEST STATE packet...")
-        vest_packet = struct.pack("<b2B16x", ord(UPDATE_STATE_PKT), shield, health)
+        vest_packet = struct.pack("<b3B15x", ord(UPDATE_STATE_PKT), self._sqn, shield, health)
         crc = getCRC(vest_packet)
         vest_packet += struct.pack("B", crc)
         self._sent_packets.append(vest_packet)
