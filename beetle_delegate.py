@@ -144,7 +144,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.handleCorruptPacket(packet_type)
                     continue
 
-                # Extract payload
+                # Extract payload (excluding packet type (FIRST) and CRC (LAST))
                 payload = packet[1:-1]
 
                 if packet_type == IMU_DATA_PKT:
@@ -158,7 +158,7 @@ class BeetleDelegate(btle.DefaultDelegate):
                 # Validate sequence number
                 beetle_sqn = struct.unpack("B", payload[:1])[0]
                 self.logger.info(
-                    f"Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}."
+                    f">> Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}."
                 )
                 if beetle_sqn != self._expected_seq_num:
                     self.logger.error(
@@ -344,7 +344,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         if self._state_change_ip:
             self._state_change_ip = False
             self.logger.info(">> Received GUN STATE ACK. Applying state...")
-            _, remainingBullets = struct.unpack("<2B16x", data)
+            _, _, remainingBullets = struct.unpack("<3B15x", data)
             print(f"<<<<<< RECEIVED {remainingBullets} BULLETS FROM ARDUINO >>>>>>")
             self.game_state.applyGunState(bullets=remainingBullets)
             self._sqn += 1
@@ -375,7 +375,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         if self._state_change_ip:
             self._state_change_ip = False
             self.logger.info(">> Received VEST STATE ACK. Applying state...")
-            shield, health = struct.unpack("<2B16x", data)
+            _, shield, health = struct.unpack("<3B15x", data)
             print(f"<<<<<< RECEIVED {health} HEALTH FROM ARDUINO >>>>>>")
             print(f"<<<<<< RECEIVED {shield} SHIELD FROM ARDUINO >>>>>>")
             self.game_state.applyVestState(shield=shield, health=health)

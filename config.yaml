@@ -39,7 +39,7 @@ storage:
   max_queue_size: 2000
 
 time:
-  response_timeout: 1
+  response_timeout: 3
   handshake_interval: 1
   reconnection_interval: 2
   stats_log_interval: 5
