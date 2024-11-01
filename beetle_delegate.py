@@ -426,7 +426,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         """
         self._state_change_ip = True
         self.logger.info("<< Sending RELOAD...")
-        reload_packet = struct.pack("<b18x", ord(RELOAD_PKT))
+        reload_packet = struct.pack("<bB17x", ord(RELOAD_PKT), self._sqn)
         crc = getCRC(reload_packet)
         reload_packet += struct.pack("B", crc)
         self.beetle_connection.writeCharacteristic(reload_packet)
