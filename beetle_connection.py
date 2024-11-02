@@ -132,6 +132,7 @@ class BeetleConnection:
 
             except btle.BTLEDisconnectError or btle.BTLEException or Exception as e:
                 self.logger.error(f"Error occurred: {e}")
+                self.logger.error(f"Force disconnecting and sleeping for {self.RECONNECTION_INTERVAL} second(s)...")
                 self.forceDisconnect()
                 time.sleep(self.RECONNECTION_INTERVAL)
 
@@ -194,11 +195,6 @@ class BeetleConnection:
             return False
 
     def forceDisconnect(self):
-        """
-        Forces a disconnection from the Beetle.
-
-        This method is typically called when an error occurs or when ending the connection.
-        """
         self.game_state.saveState()
         self.beetle.disconnect()
         self.beetle_state = BeetleState.DISCONNECTED
@@ -214,14 +210,11 @@ class BeetleConnection:
 
         # Sync game state
         if self.mac_address == self.config["device"]["beetle_1"]:  # gun
-            currShot = self.game_state.getCurrShot()
             remainingBullets = self.game_state.getRemainingBullets()
-            self.beetle_delegate._shots_fired = {i for i in range(1, currShot)}
             syn_packet = struct.pack(
-                "b3B15x",
+                "b2B16x",
                 ord(HS_SYN_PKT),
                 self.beetle_delegate.sqn,
-                currShot,
                 remainingBullets,
             )
         elif self.mac_address == self.config["device"]["beetle_3"]:  # vest
@@ -252,13 +245,8 @@ class BeetleConnection:
     # ------------------------- Handling game state from above ------------------------- #
 
     def handleServerGunState(self, data):
-        """
-        Sends the gun state packet to the Beetle.
-
-        Args:
-            data (int): Dictionary containing remaining bullet from relay server.
-        """
         bullets = data["bullets"]
+        # if relay sv sends 6 bullets AND our game state has 0 bullets => reload
         if bullets == self.MAG_SIZE and self.game_state.getState()["bullets"] == 0:
             self.game_state.reload()
             self.beetle_delegate.sendReloadPacket()
@@ -270,12 +258,6 @@ class BeetleConnection:
             print("Client-server gun states match.")
 
     def handleServerVestState(self, data):
-        """
-        Sends the vest state packet to the Beetle.
-
-        Args:
-            data (dict): Dictionary containing shield and health values from relay server.
-        """
         shield, health = data["shield"], data["health"]
         if not (shield, health) == self.game_state.getShieldHealth():
             print("Changes to vest state detected. Recalibrating...")
