@@ -67,7 +67,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         # Gun and vest handling
         self._state_change_ip = False
-        self._shots_fired = set()
 
         # Sequencing
         self._sqn = 0
@@ -157,13 +156,16 @@ class BeetleDelegate(btle.DefaultDelegate):
 
                 # Validate sequence number
                 beetle_sqn = struct.unpack("B", payload[:1])[0]
-                self.logger.info(
-                    f">> Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}."
-                )
-                if beetle_sqn != self._expected_seq_num:
-                    self.logger.error(
-                        f"Sequence number mismatch. Expected SQN {self._expected_seq_num} but got SQN {beetle_sqn} instead."
-                    )
+                self.logger.info(f">> Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}.")
+
+                # Handle duplicate packets
+                if beetle_sqn < self._expected_seq_num:
+                    self.logger.warning(f"Duplicate packet received (SQN {beetle_sqn}). Ignoring...")
+                    continue
+
+                # Handle out-of-order packets
+                if beetle_sqn > self._expected_seq_num:
+                    self.logger.error(f"SQN mismatch. Got SQN {beetle_sqn} instead of expected SQN {self._expected_seq_num}.")
                     self.sendNAKPacket()
                     return
                 
@@ -269,12 +271,12 @@ class BeetleDelegate(btle.DefaultDelegate):
             Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
 
     def handleNAKPacket(self, data):
-        self.logger.warning(">> Received NAK.")
         requested_sqn = struct.unpack("B", data[:1])[0]
         if len(self._sent_packets) < requested_sqn:
             self.logger.error(f"Length of sent packets {len(self._sent_packets)} is less than requested sequence number {requested_sqn}. Unable to send NAK.")
             return
-        self.logger.warning(f"<< Resending requested packet {requested_sqn}...")
+        self.logger.warning(f">> Received NAK. Resending requested packet {requested_sqn}.")
+        self.logger.warning((self._sent_packets[requested_sqn])[0])
         self.beetle_connection.writeCharacteristic(self._sent_packets[requested_sqn])
 
     def sendNAKPacket(self):
@@ -324,16 +326,10 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     # ---------------------------- Gun State Handling ---------------------------- #
 
-    def sendGunStatePacket(self, bullets):
-        """
-        Sends the GUN state packet to the Beetle.
-
-        Args:
-            bullets (int): The number of bullets remaining in the gun.
-        """
+    def sendGunStatePacket(self, remainingBullets):
         self._state_change_ip = True
-        self.logger.info(f"<< Sending GUN STATE packet...")
-        gun_packet = struct.pack("b3B15x", ord(UPDATE_STATE_PKT), self._sqn, 7 - bullets, bullets)
+        self.logger.info(f"<< Sending GUN STATE packet with SQN {self._sqn}...")
+        gun_packet = struct.pack("b2B16x", ord(UPDATE_STATE_PKT), self._sqn, remainingBullets)
         crc = getCRC(gun_packet)
         gun_packet += struct.pack("B", crc)
         self._sent_packets.append(gun_packet)
@@ -344,7 +340,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         if self._state_change_ip:
             self._state_change_ip = False
             self.logger.info(">> Received GUN STATE ACK. Applying state...")
-            _, _, remainingBullets = struct.unpack("<3B15x", data)
+            _, remainingBullets = struct.unpack("<2B16x", data)
             print(f"<<<<<< RECEIVED {remainingBullets} BULLETS FROM ARDUINO >>>>>>")
             self.game_state.applyGunState(bullets=remainingBullets)
             self._sqn += 1
@@ -354,15 +350,8 @@ class BeetleDelegate(btle.DefaultDelegate):
     # ---------------------------- Vest State Handling ---------------------------- #
 
     def sendVestStatePacket(self, shield, health):
-        """
-        Sends the VEST state packet to the Beetle.
-
-        Args:
-            shield (int): The shield of the player.
-            health (int): The health of the player.
-        """
         self._state_change_ip = True
-        self.logger.info(f"<< Sending VEST STATE packet...")
+        self.logger.info(f"<< Sending VEST STATE packet with SQN {self._sqn}...")
         vest_packet = struct.pack("<b3B15x", ord(UPDATE_STATE_PKT), self._sqn, shield, health)
         crc = getCRC(vest_packet)
         vest_packet += struct.pack("B", crc)
@@ -386,30 +375,23 @@ class BeetleDelegate(btle.DefaultDelegate):
     # ---------------------------- Gun Handling ---------------------------- #
 
     def handleGunPacket(self, data):
-        # FIXME handle action in progress?
-        beetle_sqn, shotID, remainingBullets = struct.unpack("<3B15x", data)
+        beetle_sqn, remainingBullets = struct.unpack("<2B16x", data)
 
         # Handle gun shot
-        if shotID not in self._shots_fired:
-            self.logger.info(f">> GUNSHOT {shotID} received.")
-            self.data_queue.put(
-                {
-                    "id": self.beetle_id,
-                    "type": GUNSHOT_PKT,
-                    "player_id": self.PLAYER_ID,
-                }
-            )
-            self._shots_fired.add(shotID)
-            self.game_state.useBullet()
-            self.sendGunACK(beetle_sqn, shotID, remainingBullets)
-        else:
-            self.logger.warning(
-                f">> Duplicate Shot received: {shotID}. Dropping packet..."
-            )
+        self.logger.info(f">> GUNSHOT received.")
+        self.data_queue.put(
+            {
+                "id": self.beetle_id,
+                "type": GUNSHOT_PKT,
+                "player_id": self.PLAYER_ID,
+            }
+        )
+        self.game_state.useBullet()
+        self.sendGunACK(beetle_sqn, remainingBullets)
 
-    def sendGunACK(self, beetle_sqn, shotID, remainingBullets):
-        self.logger.info(f"<< Sending GUNSHOT {shotID} ACK...")
 
+    def sendGunACK(self, beetle_sqn, remainingBullets):
+        self.logger.info(f"<< Sending GUNSHOT ACK...")
         ack_packet = struct.pack("<bB17x", ord(GUNSHOT_PKT), beetle_sqn)
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
@@ -436,7 +418,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         if self._state_change_ip:
             self._state_change_ip = False
             self.logger.info(">> Received RELOAD ACK.")
-            self._shots_fired = set()
             self.game_state.applyGunState(bullets=self.MAG_SIZE)
             self._sqn += 1
         else:
@@ -467,14 +448,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.beetle_connection.writeCharacteristic(ack_packet)
         self._expected_seq_num += 1
         self.game_state.applyVestState(shield=shield, health=health)
-
-    @property
-    def shots_fired(self):
-        return self._shots_fired
-
-    @shots_fired.setter
-    def shots_fired(self, value):
-        self._shots_fired = value
 
     @property
     def sqn(self):
