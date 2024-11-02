@@ -194,10 +194,6 @@ class GameState:
     def getRemainingBullets(self):
         return self.gun_state.getState()["bullets"]
 
-    def getCurrShot(self):
-        shotsInMag = self.getRemainingBullets()
-        return 7 - shotsInMag
-
     def getShieldHealth(self):
         state = self.vest_state.getState()
         return state["shield"], state["health"]
