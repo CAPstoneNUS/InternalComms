@@ -34,7 +34,7 @@ def main():
     game_state = GameState()
     sender_queue = queue.Queue()
     server_gun_state, server_vest_state = queue.Queue(maxsize=1), queue.Queue(maxsize=1)
-    # relay_client = RelayClient(config, sender_queue, server_gun_state, server_vest_state)
+    relay_client = RelayClient(config, sender_queue, server_gun_state, server_vest_state)
 
     for mac in beetle_macs:
         logger = setupLogger(config, mac)
@@ -54,16 +54,16 @@ def main():
 
     signal.signal(signal.SIGINT, lambda sig, frame: signalHandler(sig, frame, game_state, beetle_conns))
 
-    consumer_thread = threading.Thread(target=collectData, args=(sender_queue, config))
-    consumer_thread.start()
-    consumer_thread.join()
+    # consumer_thread = threading.Thread(target=collectData, args=(sender_queue, config))
+    # consumer_thread.start()
+    # consumer_thread.join()
     
-    # relay_client.start()
+    relay_client.start()
 
     for thread in beetle_threads:
         thread.join()
 
-    # relay_client.join()
+    relay_client.join()
 
 
 if __name__ == "__main__":

@@ -16,10 +16,11 @@
 #define NUMPIXELS 10
 #define RECV_PIN 2
 
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 CRC8 crc8;
 
+const uint8_t MAX_RESEND_COUNT = 3;
 const uint8_t MAX_SHIELD = 30;
 const uint8_t MAX_HEALTH = 100;
 const uint8_t PACKET_BUFFER_SIZE = 4;
@@ -35,6 +36,7 @@ uint8_t currBufferIdx = 0;
 int RED_ENCODING_VALUE = 0xFF6897;
 int ATTACK_ENCODING_VALUE = 0xFF9867;  //TOD
 
+uint8_t packetResendCount = 0;
 unsigned long lastVestShotTime = 0;
 bool waitingForVestACK = false;
 
@@ -146,19 +148,26 @@ void handlePacket(Packet &packet) {
       if (packet.sqn == sqn) {  // if we recv the sqn we sent...
         applyPendingState();
         waitingForVestACK = false;
+        packetResendCount = 0;
         sqn++;
       } else {
         sendNAKPacket(sqn);
       }
       break;
     case UPDATE_STATE_PACKET:
-      if (packet.sqn == expectedSeqNum) {
-        updatePendingState(packet.shield, packet.health);
+       if (packet.sqn < expectedSeqNum) {
         sendPacket(VESTSTATE_ACK_PKT);
-        applyPendingState();
-        expectedSeqNum++;
-      } else {
+      } else if (packet.sqn > expectedSeqNum) {
         sendNAKPacket(expectedSeqNum);
+      } else {
+        shield = packet.shield;
+        health = packet.health;
+        for (int i = 0; i < NUMPIXELS; i++) {
+          pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+        }
+        updateLED();
+        sendPacket(VESTSTATE_ACK_PKT);
+        expectedSeqNum++;
       }
       break;
     case NAK_PACKET:
@@ -227,8 +236,9 @@ void loop() {
     }
 
     if (waitingForVestACK) {
-      if (millis() - lastVestShotTime > RESPONSE_TIMEOUT) {
+      if ((millis() - lastVestShotTime > RESPONSE_TIMEOUT) && (packetResendCount < MAX_RESEND_COUNT)) {
         sendPacket(VESTSHOT_PACKET);
+        packetResendCount++;
         lastVestShotTime = millis();
       }
     }
@@ -243,14 +253,14 @@ void updateLED() {
   for (int i = 0; i < NUMPIXELS; i++) {
     if (i < full_leds) {
       // Fully lit LED (Green color: RGB -> 0, 5, 0 for dimmed green)
-      pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
+      pixels.setPixelColor(i, pixels.Color(0, 10, 0));
 
     } else if (i == full_leds && remainder > 0) {
       // Partially lit LED for the remainder HP (Color: RGB -> 0, 1, 0 for dimmer green)
-      pixels.setPixelColor(i, pixels.Color(0, 1, 0, 0));
+      pixels.setPixelColor(i, pixels.Color(0, 1, 0));
     } else {
       // Turn off the rest of the LEDs
-      pixels.setPixelColor(i, pixels.Color(0, 0, 0, 0));
+      pixels.setPixelColor(i, pixels.Color(0, 0, 0));
     }
   }
   pixels.show();

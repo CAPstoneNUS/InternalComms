@@ -20,17 +20,19 @@ CRC8 crc8;
 Adafruit_MPU6050 mpu;
 
 const uint8_t MAG_SIZE = 6;
+const uint8_t MAX_RESEND_COUNT = 3;
 const uint8_t PACKET_BUFFER_SIZE = 4;
 const unsigned long IMU_INTERVAL = 50;
 const unsigned long RESPONSE_TIMEOUT = 1000;
 
 uint8_t calculatedCRC;
-uint8_t currShot = 1;
 uint8_t remainingBullets = MAG_SIZE;
 bool hasHandshake = false;
 uint8_t sqn = 0;
 uint8_t expectedSeqNum = 0;
 uint8_t currBufferIdx = 0;
+
+uint8_t packetResendCount = 0;
 unsigned long lastGunShotTime = 0;
 bool waitingForGunACK = false;
 
@@ -55,35 +57,30 @@ bool buttonPressed = false;  // To track if the button was pressed
 struct Packet {
   char packetType;
   uint8_t sqn;
-  uint8_t shotID;  // AKA currShot, also doubles as seq num for NAK pkt
   uint8_t remainingBullets;
-  byte padding[15];
+  byte padding[16];
   uint8_t crc;
 };
 
 // ---------------- Pending State Management ---------------- //
 
 struct PendingState {
-  uint8_t currShot;
   uint8_t remainingBullets;
   bool isPending;
 } pendingState;
 
 void initializePendingState() {
-  pendingState.currShot = currShot;
   pendingState.remainingBullets = remainingBullets;
   pendingState.isPending = false;
 }
 
-void updatePendingState(uint8_t currShot, uint8_t remainingBullets) {
-  pendingState.currShot = currShot;
+void updatePendingState(uint8_t remainingBullets) {
   pendingState.remainingBullets = remainingBullets;
   pendingState.isPending = true;
 }
 
 void applyPendingState() {
   if (pendingState.isPending) {
-    currShot = pendingState.currShot;
     remainingBullets = pendingState.remainingBullets;
     pendingState.isPending = false;
   }
@@ -98,7 +95,6 @@ void sendPacket(char packetType) {
   Packet packet;
   packet.packetType = packetType;
   packet.sqn = sqn;
-  packet.shotID = pendingState.isPending ? pendingState.currShot : currShot;  // AKA currShot sync variable for reconnections
   packet.remainingBullets = pendingState.isPending ? pendingState.remainingBullets : remainingBullets;
   memset(packet.padding, 0, sizeof(packet.padding));
   crc8.restart();
@@ -129,31 +125,35 @@ void handlePacket(Packet &packet) {
     case GUNSHOT_PACKET:
       if (packet.sqn == sqn) { // if we recv what we sent out
         waitingForGunACK = false;
+        packetResendCount = 0;
         applyPendingState();
         lastGunShotTime = millis();
-        currShot++;
         sqn++;
       } else {
         sendNAKPacket(sqn);
       }
       break;
     case RELOAD_PACKET:
-      if (packet.sqn == expectedSeqNum) {
-        reloadMag();
+       if (packet.sqn < expectedSeqNum) {
+        sendPacket(RELOAD_PACKET);
+      } else if (packet.sqn > expectedSeqNum) {
+        sendNAKPacket(expectedSeqNum);
+      } else {
+        adjustLED(MAG_SIZE);
         sendPacket(RELOAD_PACKET);
         expectedSeqNum++;
-      } else {
-        sendNAKPacket(expectedSeqNum);
       }
       break;
     case UPDATE_STATE_PACKET:
-      if (packet.sqn == expectedSeqNum) {
-        updatePendingState(packet.shotID, packet.remainingBullets);
-        sendPacket(GUNSTATE_ACK_PKT);
-        applyPendingState();
-        expectedSeqNum++;
+      if (packet.sqn < expectedSeqNum) {
+        sendPacket(GUNSTATE_ACK_PKT); // duplicate!! just send ack without processing
+      } else if (packet.sqn > expectedSeqNum) {
+        sendNAKPacket(expectedSeqNum); // we missed something, req expected sqn packet
       } else {
-        sendNAKPacket(expectedSeqNum);
+        remainingBullets = packet.remainingBullets;
+        adjustLED(remainingBullets);
+        sendPacket(GUNSTATE_ACK_PKT);
+        expectedSeqNum++;
       }
       break;
     case NAK_PACKET:
@@ -161,7 +161,7 @@ void handlePacket(Packet &packet) {
       Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
       break;
     case KILL_PACKET:
-      asm volatile("jmp 0");
+      asm volatile("jmp 0"); // Reset device
       break;
     default:
       sendNAKPacket(expectedSeqNum);
@@ -175,7 +175,7 @@ void setup() {
   IrSender.begin(IR_PIN);
   pixels.begin();
   initializePendingState();
-  reloadMag();
+  adjustLED(MAG_SIZE);
   mpuSetup();
   hasHandshake = false;
   sqn = 0;
@@ -201,14 +201,12 @@ void loop() {
           sqn = 0;
           expectedSeqNum = 0;
           hasHandshake = false;
-          updatePendingState(packet.shotID, packet.remainingBullets);
+          updatePendingState(packet.remainingBullets);
           sendPacket(ACK_PACKET);
           break;
         case ACK_PACKET:
           applyPendingState();
-          for (int i = 1; i <= currShot; i++) {  // pendingState applied to global currShot
-            updateLED(7 - i);
-          }
+          adjustLED(remainingBullets);
           hasHandshake = true;
           break;
         default:
@@ -230,8 +228,9 @@ void loop() {
     }
 
     // Gunshot packet timeout
-    if (waitingForGunACK && (currMillis - lastGunShotTime) > RESPONSE_TIMEOUT) {
+    if ((waitingForGunACK && (currMillis - lastGunShotTime) > RESPONSE_TIMEOUT) && (packetResendCount < MAX_RESEND_COUNT)) {
       sendPacket(GUNSHOT_PACKET);
+      packetResendCount++;
       lastGunShotTime = currMillis;
     }
   }
@@ -271,14 +270,18 @@ void readButton(unsigned long currMillis) {
 
       // Button press detected (low to high transition)
       if (buttonState == HIGH) {
+        IrSender.sendNEC(RED_ENCODING_VALUE, 32);
         if (remainingBullets > 0) {
-          IrSender.sendNEC(RED_ENCODING_VALUE, 32);
-          updatePendingState(currShot, --remainingBullets);
-          sendPacket(GUNSHOT_PACKET);
-          waitingForGunACK = true;
-          lastGunShotTime = currMillis;
-          updateLED(pendingState.remainingBullets);
+          remainingBullets--;
+        } else {
+          remainingBullets = 0;
         }
+        updatePendingState(remainingBullets);
+        sendPacket(GUNSHOT_PACKET);
+        waitingForGunACK = true;
+        lastGunShotTime = currMillis;
+        pixels.setPixelColor(pendingState.remainingBullets, pixels.Color(0, 0, 0));
+        pixels.show();
       }
     }
   }
@@ -333,26 +336,23 @@ void sendIMUData() {
   Serial.write((byte *)&imuPacket, sizeof(imuPacket));
 }
 
-void reloadMag() {
-  currShot = 1;
-  remainingBullets = MAG_SIZE;
-  for (int i = 0; i < remainingBullets; i++) {
+void adjustLED(uint8_t bullets) {
+  remainingBullets = bullets;
+  for (int i = 0; i < MAG_SIZE; i++) {
+    pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+  }
+  for (int i = 0; i < bullets; i++) {
     pixels.setPixelColor(i, pixels.Color(0, 10, 0));
   }
   pixels.show();
 }
 
-void updateLED(int bulletToOff) {
-  pixels.setPixelColor(bulletToOff, pixels.Color(0, 0, 0));
-  pixels.show();
-}
+#define OFFSET_A_X -9.50
+#define OFFSET_A_Y -0.27
+#define OFFSET_A_Z -0.39
 
-#define OFFSET_A_X -9.48
-#define OFFSET_A_Y 0.44
-#define OFFSET_A_Z -0.05
-
-#define OFFSET_G_X -0.07
-#define OFFSET_G_Y 0.00
+#define OFFSET_G_X -0.06
+#define OFFSET_G_Y -0.00
 #define OFFSET_G_Z -0.01
 
 void calibrateIMU(sensors_event_t *a, sensors_event_t *g) {
