@@ -158,10 +158,16 @@ class BeetleDelegate(btle.DefaultDelegate):
                 beetle_sqn = struct.unpack("B", payload[:1])[0]
                 self.logger.info(f">> Beetle sent SQN {beetle_sqn}. Expected SQN {self._expected_seq_num}.")
 
-                # Handle duplicate packets
+                # Drop duplicate packets
                 if beetle_sqn < self._expected_seq_num:
-                    self.logger.warning(f"Duplicate packet received (SQN {beetle_sqn}). Ignoring...")
+                    self.logger.warning(f"[DUPLICATE] packet SQN {beetle_sqn} received. Ignoring...")
                     continue
+
+                if random.random() <= 0.1:
+                    beetle_sqn = 99
+                    self.logger.warning(f"*** SIMULATING out-of-order packet. Setting SQN to {beetle_sqn} ***")
+                    self.logger.warning("+++++++++++++ SLEEPING 2 SEC TO TEST BEETLE RESEND +++++++++++++")
+                    time.sleep(2)
 
                 # Handle out-of-order packets
                 if beetle_sqn > self._expected_seq_num:
@@ -252,7 +258,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         for packet in reversed(self._sent_packets):
             if packet[0] == ord(UPDATE_STATE_PKT):
-                self.logger.warning("Resending last state change packet...")
+                self.logger.warning("<< Resending last state change packet...")
                 self.beetle_connection.writeCharacteristic(packet)
                 return
 
@@ -265,7 +271,7 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.beetle_connection.forceDisconnect()
 
         if self._state_change_ip:
-            self.logger.warning("State change packet timeout.")
+            self.logger.warning("[TIMEOUT] No ACK received for state change packet.")
             self.sendLastStateChangePacket()
             self._timeout_resend_attempts += 1
             Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
@@ -341,11 +347,11 @@ class BeetleDelegate(btle.DefaultDelegate):
             self._state_change_ip = False
             self.logger.info(">> Received GUN STATE ACK. Applying state...")
             _, remainingBullets = struct.unpack("<2B16x", data)
-            print(f"<<<<<< RECEIVED {remainingBullets} BULLETS FROM ARDUINO >>>>>>")
+            print(f"*** ARDUINO LED SHOULD SHOW {remainingBullets} BULLETS ***")
             self.game_state.applyGunState(bullets=remainingBullets)
             self._sqn += 1
         else:
-            self.logger.warning(">> Received unexpected GUN STATE ACK.")
+            self.logger.warning(">> [DUPLICATE] GUN STATE ACK. Ignoring...")
 
     # ---------------------------- Vest State Handling ---------------------------- #
 
@@ -365,12 +371,12 @@ class BeetleDelegate(btle.DefaultDelegate):
             self._state_change_ip = False
             self.logger.info(">> Received VEST STATE ACK. Applying state...")
             _, shield, health = struct.unpack("<3B15x", data)
-            print(f"<<<<<< RECEIVED {health} HEALTH FROM ARDUINO >>>>>>")
-            print(f"<<<<<< RECEIVED {shield} SHIELD FROM ARDUINO >>>>>>")
+            print(f"*** ARDUINO LED SHOULD SHOW {health} HEALTH ***")
+            print(f"*** ARDUINO HAS {shield} SHIELD ***")
             self.game_state.applyVestState(shield=shield, health=health)
             self._sqn += 1
         else:
-            self.logger.warning(">> Received unexpected VEST STATE ACK.")
+            self.logger.warning(">> [DUPLICATE] VEST STATE ACK. Ignoring...")
 
     # ---------------------------- Gun Handling ---------------------------- #
 
