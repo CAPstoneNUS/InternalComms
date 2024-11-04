@@ -162,11 +162,11 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.logger.warning(f"[DUPLICATE] SQN {beetle_sqn} received. Ignoring...")
                     continue
 
-                if random.random() <= 0.1:
-                    beetle_sqn = 99
-                    self.logger.warning(f"*** SIMULATING out-of-order packet. Setting SQN to {beetle_sqn} ***")
-                    self.logger.warning("+++++++++++++ SLEEPING 2 SEC TO TEST BEETLE RESEND +++++++++++++")
-                    time.sleep(2)
+                # if random.random() <= 0.1:
+                #     beetle_sqn = 99
+                #     self.logger.warning(f"*** SIMULATING out-of-order packet. Setting SQN to {beetle_sqn} ***")
+                #     self.logger.warning("+++++++++++++ SLEEPING 2 SEC TO TEST BEETLE RESEND +++++++++++++")
+                #     time.sleep(2)
 
                 # Handle out-of-order packets
                 if beetle_sqn > self._expected_seq_num:
