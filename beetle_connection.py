@@ -76,7 +76,6 @@ class BeetleConnection:
         self.HANDSHAKE_INTERVAL = config["time"]["handshake_interval"]
         self.RECONNECTION_INTERVAL = config["time"]["reconnection_interval"]
         self.MAX_NOTIF_WAIT_TIME = config["time"]["max_notif_wait_time"]
-        self.MAG_SIZE = self.config["storage"]["mag_size"]
 
     def startComms(self):
         """
@@ -246,12 +245,8 @@ class BeetleConnection:
 
     def handleServerGunState(self, data):
         bullets = data["bullets"]
-        # if relay sv sends 6 bullets AND our game state has 0 bullets => reload
-        if bullets == self.MAG_SIZE and self.game_state.getState()["bullets"] == 0:
-            self.game_state.reload()
-            self.beetle_delegate.sendReloadPacket()
-        elif not bullets == self.game_state.getState()["bullets"]:
-            print("Gun state client-server mismatch. Recalibrating...")
+        if bullets != self.game_state.getState()["bullets"]:
+            print("GUN STATE client-server mismatch. Recalibrating...")
             self.game_state.updateGunState(bullets=bullets)
             self.beetle_delegate.sendGunStatePacket(bullets)
         else:
@@ -259,17 +254,15 @@ class BeetleConnection:
 
     def handleServerVestState(self, data):
         shield, health = data["shield"], data["health"]
-        if not (shield, health) == self.game_state.getShieldHealth():
-            print("Changes to vest state detected. Recalibrating...")
+        if (shield, health) != self.game_state.getShieldHealth():
+            print("VEST STATE client-server mismatch. Recalibrating...")
             self.game_state.updateVestState(shield=shield, health=health)
             self.beetle_delegate.sendVestStatePacket(shield, health)
         else:
             print("Client-server vest states match.")
 
     def killBeetle(self):
-        self.logger.info(
-            f"---------------------- KILLING BEETLE ----------------------"
-        )
+        self.logger.warning("---------------------- KILLING BEETLE ----------------------")
         reset_packet = struct.pack("b18x", ord(KILL_PKT))
         crc = getCRC(reset_packet)
         reset_packet += struct.pack("B", crc)

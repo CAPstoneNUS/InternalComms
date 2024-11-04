@@ -183,10 +183,6 @@ class GameState:
     def useBullet(self):
         return self.gun_state.useBullet()
 
-    def reload(self):
-        print("Reloading...")
-        self.gun_state.reload()
-
     def refreshShield(self):
         print("+30 shield")
         self.vest_state.refreshShield()

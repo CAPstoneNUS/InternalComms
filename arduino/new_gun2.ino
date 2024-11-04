@@ -12,7 +12,6 @@
 #define NAK_PACKET 'N'
 #define IMU_PACKET 'M'
 #define GUNSHOT_PACKET 'G'
-#define RELOAD_PACKET 'R'
 #define UPDATE_STATE_PACKET 'U'
 #define GUNSTATE_ACK_PKT 'X'
 
@@ -131,17 +130,6 @@ void handlePacket(Packet &packet) {
         sqn++;
       } else {
         sendNAKPacket(sqn);
-      }
-      break;
-    case RELOAD_PACKET:
-       if (packet.sqn < expectedSeqNum) {
-        sendPacket(RELOAD_PACKET);
-      } else if (packet.sqn > expectedSeqNum) {
-        sendNAKPacket(expectedSeqNum);
-      } else {
-        adjustLED(MAG_SIZE);
-        sendPacket(RELOAD_PACKET);
-        expectedSeqNum++;
       }
       break;
     case UPDATE_STATE_PACKET:

@@ -11,7 +11,6 @@ from utils import getCRC, getTransmissionSpeed, logPacketStats
 HS_SYNACK_PKT = "A"
 IMU_DATA_PKT = "M"
 GUNSHOT_PKT = "G"
-RELOAD_PKT = "R"
 VESTSHOT_PKT = "V"
 NAK_PKT = "N"
 UPDATE_STATE_PKT = "U"
@@ -160,7 +159,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
                 # Drop duplicate packets
                 if beetle_sqn < self._expected_seq_num:
-                    self.logger.warning(f"[DUPLICATE] packet SQN {beetle_sqn} received. Ignoring...")
+                    self.logger.warning(f"[DUPLICATE] SQN {beetle_sqn} received. Ignoring...")
                     continue
 
                 if random.random() <= 0.1:
@@ -185,8 +184,6 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.handleGunPacket(payload)
                 elif packet_type == VESTSHOT_PKT:
                     self.handleVestPacket(payload)
-                elif packet_type == RELOAD_PKT:
-                    self.handleReloadACK()
                 elif packet_type == GUNSTATE_ACK_PKT:
                     self.handleGunStateACK(payload)
                 elif packet_type == VESTSTATE_ACK_PKT:
@@ -264,9 +261,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def handleStateTimeout(self):
         if self._timeout_resend_attempts >= self.MAX_TIMEOUT_RESEND_ATTEMPTS:
-            self.logger.error(
-                f"Exceeded {self.MAX_TIMEOUT_RESEND_ATTEMPTS} timeout resend attempts. Force disconnecting..."
-            )
+            self.logger.error(f"Exceeded {self.MAX_TIMEOUT_RESEND_ATTEMPTS} timeout resend attempts. Force disconnecting...")
             self.beetle_connection.killBeetle()
             self.beetle_connection.forceDisconnect()
 
@@ -279,10 +274,9 @@ class BeetleDelegate(btle.DefaultDelegate):
     def handleNAKPacket(self, data):
         requested_sqn = struct.unpack("B", data[:1])[0]
         if len(self._sent_packets) < requested_sqn:
-            self.logger.error(f"Length of sent packets {len(self._sent_packets)} is less than requested sequence number {requested_sqn}. Unable to send NAK.")
+            self.logger.error(f"Length of _sent_packets {len(self._sent_packets)} < requested SQN {requested_sqn}. Unable to send NAK.")
             return
         self.logger.warning(f">> Received NAK. Resending requested packet {requested_sqn}.")
-        self.logger.warning((self._sent_packets[requested_sqn])[0])
         self.beetle_connection.writeCharacteristic(self._sent_packets[requested_sqn])
 
     def sendNAKPacket(self):
@@ -290,7 +284,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         Sends a retransmission request for the packet with the expected sequence number.
         """
         self.logger.info(
-            f"<< Sending NAK for expected sequence number {self._expected_seq_num}..."
+            f"<< Sending NAK for expected SQN {self._expected_seq_num}..."
         )
         nak_packet = struct.pack("<bB17x", ord(NAK_PKT), self._expected_seq_num)
         crc = getCRC(nak_packet)
@@ -405,29 +399,6 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.beetle_connection.writeCharacteristic(ack_packet)
         self._expected_seq_num += 1
         self.game_state.applyGunState(bullets=remainingBullets)
-
-    # ---------------------------- Reload Handling ---------------------------- #
-
-    def sendReloadPacket(self):
-        """
-        Sends the RELOAD packet to the Beetle.
-        """
-        self._state_change_ip = True
-        self.logger.info("<< Sending RELOAD...")
-        reload_packet = struct.pack("<bB17x", ord(RELOAD_PKT), self._sqn)
-        crc = getCRC(reload_packet)
-        reload_packet += struct.pack("B", crc)
-        self.beetle_connection.writeCharacteristic(reload_packet)
-        Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
-
-    def handleReloadACK(self):
-        if self._state_change_ip:
-            self._state_change_ip = False
-            self.logger.info(">> Received RELOAD ACK.")
-            self.game_state.applyGunState(bullets=self.MAG_SIZE)
-            self._sqn += 1
-        else:
-            self.logger.warning(">> Received unexpected RELOAD ACK.")
 
     # ---------------------------- Vest Handling ---------------------------- #
 
