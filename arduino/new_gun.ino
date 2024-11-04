@@ -44,8 +44,7 @@ bool waitingForGunACK = false;
 
 Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-int RED_ENCODING_VALUE = 0xFF6897;     //TODO
-int ACTION_ENCODING_VALUE = 0xFF9867;  //TOD
+int RED_ENCODING_VALUE = 0xFF708F;     //TODO
 
 unsigned long buttonPressTime = 0;       // Time when the button is pressed
 unsigned long longPressDuration = 2000;  // 2 seconds

@@ -33,9 +33,6 @@ uint8_t sqn = 0;
 uint8_t expectedSeqNum = 0;
 uint8_t currBufferIdx = 0;
 
-int RED_ENCODING_VALUE = 0xFF6897;
-int ATTACK_ENCODING_VALUE = 0xFF9867;  //TOD
-
 uint8_t packetResendCount = 0;
 unsigned long lastVestShotTime = 0;
 bool waitingForVestACK = false;
@@ -227,7 +224,7 @@ void loop() {
 
   if (hasHandshake) {
     // Gun (IR Emit) --> Vest (IR Recv)
-    if (IrReceiver.decode() && IrReceiver.decodedIRData.command == 0x16) {
+    if (IrReceiver.decode() && IrReceiver.decodedIRData.command == 0xE) {
       applyDamageToPendingState(5);
       sendPacket(VESTSHOT_PACKET);
       waitingForVestACK = true;
