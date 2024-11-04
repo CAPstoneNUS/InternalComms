@@ -159,7 +159,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
                 # Drop duplicate packets
                 if beetle_sqn < self._expected_seq_num:
-                    self.logger.warning(f"[DUPLICATE] SQN {beetle_sqn} received. Ignoring...")
+                    self.logger.warning(f"Ignoring duplicate SQN {beetle_sqn}.")
                     continue
 
                 # if random.random() <= 0.1:
@@ -255,7 +255,6 @@ class BeetleDelegate(btle.DefaultDelegate):
 
         for packet in reversed(self._sent_packets):
             if packet[0] == ord(UPDATE_STATE_PKT):
-                self.logger.warning("<< Resending last state change packet...")
                 self.beetle_connection.writeCharacteristic(packet)
                 return
 
@@ -266,18 +265,26 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.beetle_connection.forceDisconnect()
 
         if self._state_change_ip:
-            self.logger.warning("[TIMEOUT] No ACK received for state change packet.")
+            self.logger.warning("<< [TIMEOUT] Resending LAST STATE CHANGE since no ACK received...")
             self.sendLastStateChangePacket()
             self._timeout_resend_attempts += 1
             Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
 
     def handleNAKPacket(self, data):
         requested_sqn = struct.unpack("B", data[:1])[0]
+
         if len(self._sent_packets) < requested_sqn:
             self.logger.error(f"Length of _sent_packets {len(self._sent_packets)} < requested SQN {requested_sqn}. Unable to send NAK.")
             return
+        
         self.logger.warning(f">> Received NAK. Resending requested packet {requested_sqn}.")
-        self.beetle_connection.writeCharacteristic(self._sent_packets[requested_sqn])
+        for packet in reversed(self._sent_packets):
+            packet_sqn = struct.unpack("B", packet[1:2])[0]  # Extract SQN from 2nd byte
+            if packet_sqn == requested_sqn:
+                self.beetle_connection.writeCharacteristic(packet)
+                return
+
+        self.logger.error(f"Requested packet with SQN {requested_sqn} not found in _sent_packets.")
 
     def sendNAKPacket(self):
         """
@@ -328,7 +335,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def sendGunStatePacket(self, remainingBullets):
         self._state_change_ip = True
-        self.logger.info(f"<< Sending GUN STATE packet with SQN {self._sqn}...")
+        self.logger.info(f"<< Sending GUN STATE packet...")
         gun_packet = struct.pack("b2B16x", ord(UPDATE_STATE_PKT), self._sqn, remainingBullets)
         crc = getCRC(gun_packet)
         gun_packet += struct.pack("B", crc)
@@ -351,7 +358,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
     def sendVestStatePacket(self, shield, health):
         self._state_change_ip = True
-        self.logger.info(f"<< Sending VEST STATE packet with SQN {self._sqn}...")
+        self.logger.info(f"<< Sending VEST STATE packet...")
         vest_packet = struct.pack("<b3B15x", ord(UPDATE_STATE_PKT), self._sqn, shield, health)
         crc = getCRC(vest_packet)
         vest_packet += struct.pack("B", crc)
@@ -378,7 +385,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         beetle_sqn, remainingBullets = struct.unpack("<2B16x", data)
 
         # Handle gun shot
-        self.logger.info(f">> GUNSHOT received.")
+        self.logger.info(f">> [G] received.")
         self.data_queue.put(
             {
                 "id": self.beetle_id,
@@ -391,7 +398,7 @@ class BeetleDelegate(btle.DefaultDelegate):
 
 
     def sendGunACK(self, beetle_sqn, remainingBullets):
-        self.logger.info(f"<< Sending GUNSHOT ACK...")
+        self.logger.info(f"<< Sending [G] ACK...")
         ack_packet = struct.pack("<bB17x", ord(GUNSHOT_PKT), beetle_sqn)
         crc = getCRC(ack_packet)
         ack_packet += struct.pack("B", crc)
@@ -403,7 +410,7 @@ class BeetleDelegate(btle.DefaultDelegate):
     # ---------------------------- Vest Handling ---------------------------- #
 
     def handleVestPacket(self, data):
-        self.logger.info(">> VESTSHOT detected.")
+        self.logger.info(">> [V] received.")
         self.data_queue.put(
             {
                 "id": self.beetle_id,
@@ -416,7 +423,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.sendVestACK(beetle_sqn, shield, health)
 
     def sendVestACK(self, beetle_sqn, shield, health):
-        self.logger.info("<< Sending VESTSHOT ACK...")
+        self.logger.info("<< Sending [V] ACK...")
 
         ack_packet = struct.pack("<bB17x", ord(VESTSHOT_PKT), beetle_sqn)
         crc = getCRC(ack_packet)
