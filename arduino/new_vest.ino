@@ -5,12 +5,12 @@
 #include "PinDefinitionsAndMore.h"
 
 #define SYN_PACKET 'S'
-#define KILL_PACKET 'K'
 #define ACK_PACKET 'A'
 #define NAK_PACKET 'N'
 #define VESTSHOT_PACKET 'V'
 #define UPDATE_STATE_PACKET 'U'
-#define VESTSTATE_ACK_PKT 'W'
+#define VESTSTATE_ACK_PACKET 'W'
+#define KILL_PACKET 'K'
 
 #define LED_PIN 4
 #define NUMPIXELS 10
@@ -119,8 +119,24 @@ void storePacket(Packet packet) {
 }
 
 Packet retreivePacket(uint8_t sqn) {
-  int idx = sqn % PACKET_BUFFER_SIZE;
-  return packets[idx];
+  int startIdx = sqn % PACKET_BUFFER_SIZE;
+  int idx = startIdx;
+
+  // Traverse backwards from index
+  do {
+    if (packets[idx].sqn == sqn) {
+      return packets[idx];
+    }
+    idx = (idx - 1 + PACKET_BUFFER_SIZE) % PACKET_BUFFER_SIZE;
+  } while (idx != startIdx);
+
+  // If packet doesnt exist thennnn kill it ig
+  Packet killPacket;
+  killPacket.packetType = KILL_PACKET;
+  crc8.restart();
+  crc8.add((uint8_t *)&killPacket, sizeof(Packet) - sizeof(killPacket.crc));
+  killPacket.crc = (uint8_t)crc8.calc();
+  return killPacket;
 }
 
 void applyDamageToPendingState(uint8_t damage) {
@@ -140,6 +156,11 @@ void applyDamageToPendingState(uint8_t damage) {
 }
 
 void handlePacket(Packet &packet) {
+  // if (random(100) < 30) {
+  //   sendNAKPacket(expectedSeqNum);
+  //   return;
+  // }
+
   switch (packet.packetType) {
     case VESTSHOT_PACKET:
       if (packet.sqn == sqn) {  // if we recv the sqn we sent...
@@ -153,7 +174,7 @@ void handlePacket(Packet &packet) {
       break;
     case UPDATE_STATE_PACKET:
        if (packet.sqn < expectedSeqNum) {
-        sendPacket(VESTSTATE_ACK_PKT);
+        sendPacket(VESTSTATE_ACK_PACKET);
       } else if (packet.sqn > expectedSeqNum) {
         sendNAKPacket(expectedSeqNum);
       } else {
@@ -163,7 +184,7 @@ void handlePacket(Packet &packet) {
           pixels.setPixelColor(i, pixels.Color(0, 0, 0));
         }
         updateLED();
-        sendPacket(VESTSTATE_ACK_PKT);
+        sendPacket(VESTSTATE_ACK_PACKET);
         expectedSeqNum++;
       }
       break;
@@ -186,6 +207,7 @@ void setup() {
   initializePendingState();
   pixels.begin();
   updateLED();
+  // randomSeed(analogRead(0));
   hasHandshake = false;
   sqn = 0;
   expectedSeqNum = 0;
@@ -211,6 +233,9 @@ void loop() {
           sendPacket(ACK_PACKET);
           break;
         case ACK_PACKET:
+          for (int i = 0; i < NUMPIXELS; i++) {
+            pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+          }
           applyPendingState();
           hasHandshake = true;
           break;

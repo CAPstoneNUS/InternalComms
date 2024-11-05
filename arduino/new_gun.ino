@@ -7,13 +7,13 @@
 #include "CRC8.h"
 
 #define SYN_PACKET 'S'
-#define KILL_PACKET 'K'
 #define ACK_PACKET 'A'  // For handshaking
 #define NAK_PACKET 'N'
 #define IMU_PACKET 'M'
 #define GUNSHOT_PACKET 'G'
 #define UPDATE_STATE_PACKET 'U'
-#define GUNSTATE_ACK_PKT 'X'
+#define GUNSTATE_ACK_PACKET 'X'
+#define KILL_PACKET 'K'
 
 CRC8 crc8;
 Adafruit_MPU6050 mpu;
@@ -114,8 +114,24 @@ void storePacket(Packet packet) {
 }
 
 Packet retreivePacket(uint8_t sqn) {
-  int idx = sqn % PACKET_BUFFER_SIZE;
-  return packets[idx];
+  int startIdx = sqn % PACKET_BUFFER_SIZE;
+  int idx = startIdx;
+
+  // Traverse backwards from index
+  do {
+    if (packets[idx].sqn == sqn) {
+      return packets[idx];
+    }
+    idx = (idx - 1 + PACKET_BUFFER_SIZE) % PACKET_BUFFER_SIZE;
+  } while (idx != startIdx);
+
+  // If packet doesnt exist thennnn kill it ig
+  Packet killPacket;
+  killPacket.packetType = KILL_PACKET;
+  crc8.restart();
+  crc8.add((uint8_t *)&killPacket, sizeof(Packet) - sizeof(killPacket.crc));
+  killPacket.crc = (uint8_t)crc8.calc();
+  return killPacket;
 }
 
 void handlePacket(Packet &packet) {
@@ -133,13 +149,13 @@ void handlePacket(Packet &packet) {
       break;
     case UPDATE_STATE_PACKET:
       if (packet.sqn < expectedSeqNum) {
-        sendPacket(GUNSTATE_ACK_PKT); // duplicate!! just send ack without processing
+        sendPacket(GUNSTATE_ACK_PACKET); // duplicate!! just send ack without processing
       } else if (packet.sqn > expectedSeqNum) {
         sendNAKPacket(expectedSeqNum); // we missed something, req expected sqn packet
       } else {
         remainingBullets = packet.remainingBullets;
         adjustLED(remainingBullets);
-        sendPacket(GUNSTATE_ACK_PKT);
+        sendPacket(GUNSTATE_ACK_PACKET);
         expectedSeqNum++;
       }
       break;

@@ -19,7 +19,7 @@ device:
 
 # by the time this repo is made public, the IP address will have changed
 # hence its not a security risk
-  ultra_ip:  "172.26.191.32"
+  ultra_ip:  "172.26.191.99"
   ultra_port: 9876
 
 uuid:

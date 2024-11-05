@@ -16,6 +16,7 @@ NAK_PKT = "N"
 UPDATE_STATE_PKT = "U"
 GUNSTATE_ACK_PKT = "X"
 VESTSTATE_ACK_PKT = "W"
+KILL_PKT = 'K'
 
 
 class BeetleDelegate(btle.DefaultDelegate):
@@ -188,6 +189,8 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.handleGunStateACK(payload)
                 elif packet_type == VESTSTATE_ACK_PKT:
                     self.handleVestStateACK(payload)
+                elif packet_type == KILL_PKT:
+                    self.handleKillPacket()
                 else:
                     self.logger.error(f"Unknown packet type: {packet_type}")
 
@@ -239,10 +242,10 @@ class BeetleDelegate(btle.DefaultDelegate):
             self.logger.error(
                 f"Exceeded {self.MAX_CORRUPT_PACKETS} corrupt packets. Force disconnecting..."
             )
-            self.beetle_connection.killBeetle()
+            # self.beetle_connection.killBeetle()
             self.beetle_connection.forceDisconnect()
 
-    # ---------------------------- SQN, HS, Timeouts & NAKs ---------------------------- #
+    # ---------------------------- SQN, HS, Timeouts, Kill & NAKs ---------------------------- #
 
     def resetSeqNum(self):
         self._sqn = 0
@@ -261,7 +264,7 @@ class BeetleDelegate(btle.DefaultDelegate):
     def handleStateTimeout(self):
         if self._timeout_resend_attempts >= self.MAX_TIMEOUT_RESEND_ATTEMPTS:
             self.logger.error(f"Exceeded {self.MAX_TIMEOUT_RESEND_ATTEMPTS} timeout resend attempts. Force disconnecting...")
-            self.beetle_connection.killBeetle()
+            # self.beetle_connection.killBeetle()
             self.beetle_connection.forceDisconnect()
 
         if self._state_change_ip:
@@ -307,6 +310,10 @@ class BeetleDelegate(btle.DefaultDelegate):
             return
         self.logger.info(">> SYN-ACK received.")
         self.beetle_connection.ack_flag = True  # allows doHandshake() to send ACK
+
+    def handleKillPacket(self):
+        self.logger.error(">> Received KILL packet. Force disconnecting...")
+        self.beetle_connection.forceDisconnect()
 
     # ---------------------------- IMU ---------------------------- #
 

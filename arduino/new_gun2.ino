@@ -7,13 +7,13 @@
 #include "CRC8.h"
 
 #define SYN_PACKET 'S'
-#define KILL_PACKET 'K'
 #define ACK_PACKET 'A'  // For handshaking
 #define NAK_PACKET 'N'
 #define IMU_PACKET 'M'
 #define GUNSHOT_PACKET 'G'
 #define UPDATE_STATE_PACKET 'U'
-#define GUNSTATE_ACK_PKT 'X'
+#define GUNSTATE_ACK_PACKET 'X'
+#define KILL_PACKET 'K'
 
 CRC8 crc8;
 Adafruit_MPU6050 mpu;
@@ -42,10 +42,9 @@ bool waitingForGunACK = false;
 #define LED_PIN 4
 #define NUMPIXELS 6
 
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 int RED_ENCODING_VALUE = 0xFF6897;     //TODO
-int ACTION_ENCODING_VALUE = 0xFF9867;  //TOD
 
 unsigned long buttonPressTime = 0;       // Time when the button is pressed
 unsigned long longPressDuration = 2000;  // 2 seconds
@@ -115,8 +114,24 @@ void storePacket(Packet packet) {
 }
 
 Packet retreivePacket(uint8_t sqn) {
-  int idx = sqn % PACKET_BUFFER_SIZE;
-  return packets[idx];
+  int startIdx = sqn % PACKET_BUFFER_SIZE;
+  int idx = startIdx;
+
+  // Traverse backwards from index
+  do {
+    if (packets[idx].sqn == sqn) {
+      return packets[idx];
+    }
+    idx = (idx - 1 + PACKET_BUFFER_SIZE) % PACKET_BUFFER_SIZE;
+  } while (idx != startIdx);
+
+  // If packet doesnt exist thennnn kill it ig
+  Packet killPacket;
+  killPacket.packetType = KILL_PACKET;
+  crc8.restart();
+  crc8.add((uint8_t *)&killPacket, sizeof(Packet) - sizeof(killPacket.crc));
+  killPacket.crc = (uint8_t)crc8.calc();
+  return killPacket;
 }
 
 void handlePacket(Packet &packet) {
@@ -134,13 +149,13 @@ void handlePacket(Packet &packet) {
       break;
     case UPDATE_STATE_PACKET:
       if (packet.sqn < expectedSeqNum) {
-        sendPacket(GUNSTATE_ACK_PKT); // duplicate!! just send ack without processing
+        sendPacket(GUNSTATE_ACK_PACKET); // duplicate!! just send ack without processing
       } else if (packet.sqn > expectedSeqNum) {
         sendNAKPacket(expectedSeqNum); // we missed something, req expected sqn packet
       } else {
         remainingBullets = packet.remainingBullets;
         adjustLED(remainingBullets);
-        sendPacket(GUNSTATE_ACK_PKT);
+        sendPacket(GUNSTATE_ACK_PACKET);
         expectedSeqNum++;
       }
       break;
@@ -268,7 +283,7 @@ void readButton(unsigned long currMillis) {
         sendPacket(GUNSHOT_PACKET);
         waitingForGunACK = true;
         lastGunShotTime = currMillis;
-        pixels.setPixelColor(pendingState.remainingBullets, pixels.Color(0, 0, 0));
+        pixels.setPixelColor(pendingState.remainingBullets, pixels.Color(0, 0, 0, 0));
         pixels.show();
       }
     }
@@ -327,10 +342,10 @@ void sendIMUData() {
 void adjustLED(uint8_t bullets) {
   remainingBullets = bullets;
   for (int i = 0; i < MAG_SIZE; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 0, 0, 0));
   }
   for (int i = 0; i < bullets; i++) {
-    pixels.setPixelColor(i, pixels.Color(0, 10, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 10, 0, 0));
   }
   pixels.show();
 }
