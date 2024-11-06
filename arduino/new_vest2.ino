@@ -272,7 +272,7 @@ void loop() {
           break;
       }
     } else {
-      // Send NAK if CRC check fails
+      serialBuffer.clean();
       sendNAKPacket(expectedSeqNum);
     }
   }
