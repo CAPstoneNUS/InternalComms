@@ -131,9 +131,9 @@ class BeetleConnection:
 
             except btle.BTLEDisconnectError or btle.BTLEException or Exception as e:
                 self.logger.error(f"Error occurred: {e}")
-                self.logger.error(f"Force disconnecting and sleeping for {self.RECONNECTION_INTERVAL} second(s)...")
+                self.logger.error(f"Force disconnecting...")
                 self.forceDisconnect()
-                time.sleep(self.RECONNECTION_INTERVAL)
+                # time.sleep(self.RECONNECTION_INTERVAL)
 
     def openConnection(self):
         """
@@ -269,7 +269,11 @@ class BeetleConnection:
         self.serial_characteristic.write(reset_packet)
 
     def writeCharacteristic(self, packet):
-        self.serial_characteristic.write(packet)
+        try:
+            self.serial_characteristic.write(packet)
+        except btle.BTLEDisconnectError as e:
+            self.logger.error(f"Error writing to characteristic: {e}. Force disconnecting...")
+            self.forceDisconnect()
 
     @property
     def syn_flag(self):
