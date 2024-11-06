@@ -80,6 +80,7 @@ class BeetleDelegate(btle.DefaultDelegate):
         self.total_corrupted_packets = 0
         self.dropped_packet_count = 0
         self._timeout_resend_attempts = 0
+        self._nak_packet_count = 0
 
         # Configuration parameters
         self.PLAYER_ID = self.config["game"]["player_id"]
@@ -175,8 +176,9 @@ class BeetleDelegate(btle.DefaultDelegate):
                     self.sendNAKPacket()
                     return
                 
-                # Update successful packet time
+                # Update flag params
                 self.last_successful_packet_time = time.time()
+                self._nak_packet_count = 0
                 
                 # Handle packet
                 if packet_type == HS_SYNACK_PKT:
@@ -274,6 +276,11 @@ class BeetleDelegate(btle.DefaultDelegate):
             Timer(self.RESPONSE_TIMEOUT, self.handleStateTimeout).start()
 
     def handleNAKPacket(self, data):
+        self._nak_packet_count += 1
+        if self._nak_packet_count >= self.MAX_TIMEOUT_RESEND_ATTEMPTS:
+            self.logger.warning(f"Received {self.MAX_TIMEOUT_RESEND_ATTEMPTS} consecutive NAK's. Force disconnecting...")
+            self.beetle_connection.forceDisconnect()
+
         requested_sqn = struct.unpack("B", data[:1])[0]
 
         if len(self._sent_packets) < requested_sqn:
