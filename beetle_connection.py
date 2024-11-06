@@ -271,7 +271,7 @@ class BeetleConnection:
     def writeCharacteristic(self, packet):
         try:
             self.serial_characteristic.write(packet)
-        except btle.BTLEDisconnectError or btle.BTLEException as e:
+        except btle.BTLEDisconnectError or btle.BTLEException or btle.BTLEInternalError as e:
             self.logger.error(f"Error writing to characteristic: {e}. Force disconnecting...")
             self.forceDisconnect()
 

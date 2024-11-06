@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <IRremote.hpp>  // include the library
 #include <Adafruit_NeoPixel.h>
+#include <cppQueue.h>
 #include "CRC8.h"
 #include "PinDefinitionsAndMore.h"
 
@@ -46,6 +47,8 @@ struct Packet {
   uint8_t crc;
 };
 
+const int PACKET_SIZE = sizeof(Packet);
+cppQueue serialBuffer(sizeof(byte), PACKET_SIZE * 2, FIFO);
 Packet packets[PACKET_BUFFER_SIZE];
 
 // ---------------- Pending State Management ---------------- //
@@ -130,7 +133,10 @@ Packet retreivePacket(uint8_t sqn) {
     idx = (idx - 1 + PACKET_BUFFER_SIZE) % PACKET_BUFFER_SIZE;
   } while (idx != startIdx);
 
-  // If packet doesnt exist thennnn kill it ig
+  return makeKillPacket();
+}
+
+Packet makeKillPacket() {
   Packet killPacket;
   killPacket.packetType = KILL_PACKET;
   crc8.restart();
@@ -173,7 +179,7 @@ void handlePacket(Packet &packet) {
       }
       break;
     case UPDATE_STATE_PACKET:
-       if (packet.sqn < expectedSeqNum) {
+      if (packet.sqn < expectedSeqNum) {
         sendPacket(VESTSTATE_ACK_PACKET);
       } else if (packet.sqn > expectedSeqNum) {
         sendNAKPacket(expectedSeqNum);
@@ -190,7 +196,11 @@ void handlePacket(Packet &packet) {
       break;
     case NAK_PACKET:
       // packet.sqn refers to laptops expected seq num
-      Serial.write((byte *)&(retreivePacket(packet.sqn)), sizeof(Packet));
+      Packet packetToSend = retreivePacket(packet.sqn);
+      Serial.write((byte *)&(packetToSend), sizeof(Packet));
+      if (packetToSend.packetType == KILL_PACKET) {
+        asm volatile("jmp 0");
+      }
       break;
     case KILL_PACKET:
       asm volatile("jmp 0");
@@ -215,10 +225,26 @@ void setup() {
 }
 
 void loop() {
-  if (Serial.available() >= sizeof(Packet)) {
-    Packet packet;
-    Serial.readBytes((byte *)&packet, sizeof(Packet));
+  // Read available bytes from Serial and add to the queue
+  while (Serial.available() > 0) {
+    byte incomingByte = Serial.read();
+    if (!serialBuffer.isFull()) {
+      serialBuffer.push(&incomingByte);
+    }
+  }
 
+  // Process data if we have enough bytes for a complete packet
+  while (serialBuffer.getCount() >= PACKET_SIZE) {
+    Packet packet;
+
+    // Extract a complete packet from the queue
+    for (int i = 0; i < PACKET_SIZE; i++) {
+      byte byteFromQueue;
+      serialBuffer.pop(&byteFromQueue);
+      ((byte *)&packet)[i] = byteFromQueue;
+    }
+
+    // Calculate and validate CRC
     crc8.restart();
     crc8.add((uint8_t *)&packet, sizeof(Packet) - sizeof(packet.crc));
     uint8_t calculatedCRC = (uint8_t)crc8.calc();
@@ -243,7 +269,11 @@ void loop() {
           if (hasHandshake) {
             handlePacket(packet);
           }
+          break;
       }
+    } else {
+      // Send NAK if CRC check fails
+      sendNAKPacket(expectedSeqNum);
     }
   }
 
@@ -257,6 +287,7 @@ void loop() {
       IrReceiver.resume();
     }
 
+    // Handle retransmission if no ACK received
     if (waitingForVestACK) {
       if ((millis() - lastVestShotTime > RESPONSE_TIMEOUT) && (packetResendCount < MAX_RESEND_COUNT)) {
         sendPacket(VESTSHOT_PACKET);
