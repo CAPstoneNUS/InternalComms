@@ -243,6 +243,7 @@ void loop() {
           }
       }
     } else {
+      serialBuffer.clean();
       sendNAKPacket(expectedSeqNum);
     }
   }
