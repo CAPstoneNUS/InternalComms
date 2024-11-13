@@ -269,10 +269,10 @@ class BeetleConnection:
         self.serial_characteristic.write(reset_packet)
 
     def writeCharacteristic(self, packet):
-        try:
+        if self.beetle_state == BeetleState.READY:
             self.serial_characteristic.write(packet)
-        except btle.BTLEDisconnectError or btle.BTLEException or btle.BTLEInternalError as e:
-            self.logger.error(f"Error writing to characteristic: {e}. Force disconnecting...")
+        else:
+            self.logger.error(f"Error writing to characteristic. Force disconnecting...")
             self.forceDisconnect()
 
     @property

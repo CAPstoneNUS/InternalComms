@@ -122,16 +122,17 @@ class GunState:
 
 
 class GameState:
-    def __init__(self):
+    def __init__(self, config):
         self.vest_state = VestState()
         self.gun_state = GunState()
+        self.config = config
 
         self.loadState()
 
     def loadState(self):
         try:
-            if os.path.exists('game_state.json'):
-                with open('game_state.json', 'r') as f:
+            if os.path.exists(f'{self.config["game"]["player_id"]}_game_state.json'):
+                with open(f'{self.config["game"]["player_id"]}_game_state.json', 'r') as f:
                     print("Loading from game_state.json...")
                     saved_state = json.load(f)
                     
@@ -155,9 +156,9 @@ class GameState:
     def saveState(self):
         try:
             state = self.getState()
-            with open('game_state.json', 'w') as f:
+            with open(f'{self.config["game"]["player_id"]}_game_state.json', 'w') as f:
                 json.dump(state, f)
-            print("Game state saved to game_state.json")
+            print(f'Game state saved to {self.config["game"]["player_id"]}_game_state.json')
         except Exception as e:
             print(f"Error saving game state: {e}")
 

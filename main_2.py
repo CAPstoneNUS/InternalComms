@@ -22,7 +22,7 @@ def main():
     The function uses threading to handle multiple Beetle connections concurrently
     and manages data flow through a shared queue.
     """
-    config = loadConfig(1)
+    config = loadConfig(2)
     beetle_macs = [
         config["device"]["beetle_1"],
         config["device"]["beetle_2"],

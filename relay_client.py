@@ -42,12 +42,12 @@ class RelayClient(threading.Thread):
         try:
             while True:
                 client_data = self.sender_queue.get()
-                self.processAndSendData(client_data)
+                self.processAndSendData(client_data, config=self.config)
         except Exception as e:
             print(f"Error in main loop of RelayClient: {e}")
             self.relayclient.close()
 
-    def processAndSendData(self, client_data):
+    def processAndSendData(self, client_data, config):
         try:
             if client_data["type"] == "M":
                 with self.lock:
@@ -60,7 +60,7 @@ class RelayClient(threading.Thread):
                         paired_data = self.pairIMUData(
                             self.gun_buffer[0], self.ankle_buffer[0]
                         )
-                        writeCSV("paired_data.csv", paired_data)
+                        writeCSV(f'{config["game"]["player_id"]}_paired_data.csv', paired_data)
                         self.sendToUltra(paired_data)
             else:
                 del client_data["id"]

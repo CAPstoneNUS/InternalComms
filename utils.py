@@ -19,9 +19,13 @@ def signalHandler(signal, frame, game_state, beetles):
     sys.exit(0)
 
 
-def loadConfig():
-    with open("config.yaml", "r") as file:
-        return yaml.safe_load(file)
+def loadConfig(player_id):
+    if player_id == 1:
+        with open("config.yaml", "r") as file:
+            return yaml.safe_load(file)
+    else:
+        with open("config_2.yaml", "r") as file:
+            return yaml.safe_load(file)
 
 
 def collectData(data_queue, config):
@@ -39,7 +43,7 @@ def collectData(data_queue, config):
                 
                 if gun_buffer and ankle_buffer:
                     paired_data = pairIMUData(gun_buffer[0], ankle_buffer[0])
-                    writeCSV("paired_data.csv", paired_data)
+                    writeCSV(f'{config["game"]["player_id"]}_paired_data.csv', paired_data)
     except Exception as e:
         print(f"Error in data collection: {e}")
                 
