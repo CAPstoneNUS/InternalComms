@@ -1,0 +1,57 @@
+# Instructions:
+# 1. Change the player_id to 1 or 2
+# 2. Uncomment the correct MAC addresses for the beetles
+# 3. Change the IP address to the IP address of the Ultra96
+
+game:
+  player_id: 2
+
+device:
+  # ------------ PLAYER 1 ------------ #
+  # beetle_1: "F4:B8:5E:42:61:38" # gun
+  # beetle_2: "F4:B8:5E:42:67:21" # imu
+  # beetle_3: "D0:5F:B8:56:DF:70" # vest
+
+  # ------------ PLAYER 2 ------------ #
+  beetle_1: "50:65:83:77:57:F3" # gun2
+  beetle_2: "F4:B8:5E:42:6D:37" # imu2
+  beetle_3: "F4:B8:5E:42:6D:5D" # vest2
+
+# by the time this repo is made public, the IP address will have changed
+# hence its not a security risk
+  ultra_ip:  "172.26.190.220"
+  ultra_port: 9876
+
+uuid:
+  service: "0000dfb0-0000-1000-8000-00805f9b34fb"
+  characteristic: "0000dfb1-0000-1000-8000-00805f9b34fb"
+
+folder:
+  data: "data"
+  logs: "logs"
+
+storage:
+  mag_size: 6
+  packet_size: 20
+  max_corrupt_packets: 20
+  max_timeout_resend_attempts: 10
+  max_buffer_size: 500 # about 1+ seconds of data
+  max_queue_size: 2000
+
+time:
+  response_timeout: 0.75
+  handshake_interval: 0.5
+  reconnection_interval: 1
+  stats_log_interval: 5
+  max_notif_wait_time: 300
+
+packet:
+  HS_SYNACK_PKT: "A"
+  IMU_DATA_PKT: "M"
+  GUNSHOT_PKT: "G"
+  RELOAD_PKT: "R"
+  VESTSHOT_PKT: "V"
+  NAK_PKT: "N"
+  UPDATE_STATE_PKT: "U"
+  GUNSTATE_ACK_PKT: "X"
+  VESTSTATE_ACK_PKT: "W"
