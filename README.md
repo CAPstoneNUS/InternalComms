@@ -23,5 +23,9 @@ This project demonstrates expertise in **real-time embedded systems, Bluetooth c
 - **Ultra96 FPGA** (Data Processing & AI Inference)
 - **Logging & Debugging** (Bluetooth Communication Status, Packet Handling)
 
+## Further Readings
+Project Report: https://docs.google.com/document/d/1_6jgIMNf3wsmeQc3ZJLb0q6JBUOl0woxTrFLL1A-zOM/edit?usp=drivesdk
+Freeplay Video: https://drive.google.com/file/d/1HpCu5QjqJajcYBHK2pB3rtDJjHjtI6Iq/view?usp=drivesdk
+
 For more details or inquiries, feel free to reach out!
 
